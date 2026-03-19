@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-Bot de Telegram — Envíos entre locales Lharmonie
+Bot de Telegram â EnvÃ­os entre locales Lharmonie
 =================================================
-Registra envíos de mercadería entre el centro de producción y los locales.
-Catálogo de productos editable desde Google Sheets.
+Registra envÃ­os de mercaderÃ­a entre el centro de producciÃ³n y los locales.
+CatÃ¡logo de productos editable desde Google Sheets.
 """
 import os
 import io
@@ -21,7 +21,7 @@ from telegram.ext import (
     MessageHandler, filters, ContextTypes
 )
 
-# ── CONFIG ────────────────────────────────────────────────────────────────────
+# ââ CONFIG ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 TELEGRAM_TOKEN = os.environ.get("ENVIOS_TELEGRAM_TOKEN", "8631530577:AAGM0J5qq2VqcZ7FaSeXP_UAtinPcAYW9jc")
 SHEETS_ID      = os.environ.get("ENVIOS_SHEETS_ID", "")
 GOOGLE_CREDS   = os.environ.get("GOOGLE_CREDENTIALS", "")
@@ -33,22 +33,22 @@ LOCALES = [
     "Lharmonie 5 - Libertador 3118",
 ]
 
-TRANSPORTES = ["🚗 Ezequiel (Mister)", "🚕 Uber"]
+TRANSPORTES = ["ð Ezequiel (Mister)", "ð Uber"]
 
-# IDs para notificaciones (Martín + Iaras)
+# IDs para notificaciones (MartÃ­n + Iaras)
 NOTIFY_IDS = [
-    6457094702,   # Martín
+    6457094702,   # MartÃ­n
     5358183977,   # Iara Zayat
     7354049230,   # Iara Rodriguez
 ]
 
-logging.basicConfig(format="%(asctime)s — %(levelname)s — %(message)s", level=logging.INFO)
+logging.basicConfig(format="%(asctime)s â %(levelname)s â %(message)s", level=logging.INFO)
 log = logging.getLogger(__name__)
 
-# ── ESTADO DE USUARIOS ────────────────────────────────────────────────────────
-estado_usuario = {}  # chat_id → {paso, datos del envío en curso...}
+# ââ ESTADO DE USUARIOS ââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
+estado_usuario = {}  # chat_id â {paso, datos del envÃ­o en curso...}
 
-# ── GOOGLE SHEETS ─────────────────────────────────────────────────────────────
+# ââ GOOGLE SHEETS âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 _sheets_cache = {"gc": None, "sh": None, "ts": 0}
 SHEETS_CACHE_TTL = 300
 
@@ -69,30 +69,30 @@ def get_sheets_client():
         _sheets_cache.update({"gc": gc, "sh": sh, "ts": now})
         return gc, sh
     except Exception as e:
-        log.error(f"❌ Error conectando a Sheets: {e}")
+        log.error(f"â Error conectando a Sheets: {e}")
         return None, None
 
 def cargar_productos() -> dict:
     """
-    Lee la pestaña 'Productos Envío' del Sheet.
-    Retorna dict: {categoría: [producto1, producto2, ...]}
+    Lee la pestaÃ±a 'Productos EnvÃ­o' del Sheet.
+    Retorna dict: {categorÃ­a: [producto1, producto2, ...]}
     """
     try:
         gc, sh = get_sheets_client()
         if not sh:
             return {}
         try:
-            ws = sh.worksheet("Productos Envío")
+            ws = sh.worksheet("Productos EnvÃ­o")
         except:
-            # Crear pestaña con los productos iniciales si no existe
-            ws = sh.add_worksheet("Productos Envío", rows=200, cols=3)
-            ws.append_row(["Categoría", "Producto", "Unidad"])
+            # Crear pestaÃ±a con los productos iniciales si no existe
+            ws = sh.add_worksheet("Productos EnvÃ­o", rows=200, cols=3)
+            ws.append_row(["CategorÃ­a", "Producto", "Unidad"])
             _crear_productos_iniciales(ws)
 
         vals = ws.get_all_values()
         header_idx = 0
         for i, row in enumerate(vals):
-            if "Categoría" in row or "Categoria" in row:
+            if "CategorÃ­a" in row or "Categoria" in row:
                 header_idx = i
                 break
 
@@ -106,35 +106,34 @@ def cargar_productos() -> dict:
                 if cat not in productos:
                     productos[cat] = []
                 productos[cat].append(prod)
-        log.info(f"✅ Productos cargados: {sum(len(v) for v in productos.values())} en {len(productos)} categorías")
+        log.info(f"â Productos cargados: {sum(len(v) for v in productos.values())} en {len(productos)} categorÃ­as")
         return productos
     except Exception as e:
-        log.error(f"❌ Error cargando productos: {e}")
+        log.error(f"â Error cargando productos: {e}")
         return {}
 
 
 def _crear_productos_iniciales(ws):
-    """Crea el catálogo inicial de productos."""
+    """Crea el catÃ¡logo inicial de productos."""
     productos = [
-        # Pastelería
-        ("Pastelería", "Alfajor de chocolate", "u"),
-        ("Pastelería", "Alfajor de nuez", "u"),
-        ("Pastelería", "Alfajor de pistacho", "u"),
-        ("Pastelería", "Barritas proteína", "u"),
-        ("Pastelería", "Brownie", "u"),
-        ("Pastelería", "Budín", "u"),
-        ("Pastelería", "Cookie chocolate", "u"),
-        ("Pastelería", "Cookie de maní", "u"),
-        ("Pastelería", "Cookie melu", "u"),
-        ("Pastelería", "Cookie nuez", "u"),
-        ("Pastelería", "Cookie red velvet", "u"),
-        ("Pastelería", "Cuadrado de coco", "u"),
-        ("Pastelería", "Muffin", "u"),
-        ("Pastelería", "Porción de dátiles", "u"),
-        ("Pastelería", "Porción de torta", "u"),
-        ("Pastelería", "Tarteleta", "u"),
-        # Elaborados
-        ("Elaborados", "Bavka choco", "u"),
+        # PastelerÃ­a
+        ("PastelerÃ­a", "Alfajor de chocolate", "u"),
+        ("PastelerÃ­a", "Alfajor de nuez", "u"),
+        ("PastelerÃ­a", "Alfajor de pistacho", "u"),
+        ("PastelerÃ­a", "Barritas proteÃ­na", "u"),
+        ("PastelerÃ­a", "Brownie", "u"),
+        ("PastelerÃ­a", "BudÃ­n", "u"),
+        ("PastelerÃ­a", "Cookie chocolate", "u"),
+        ("PastelerÃ­a", "Cookie de manÃ­", "u"),
+        ("PastelerÃ­a", "Cookie melu", "u"),
+        ("PastelerÃ­a", "Cookie nuez", "u"),
+        ("PastelerÃ­a", "Cookie red velvet", "u"),
+        ("PastelerÃ­a", "Cuadrado de coco", "u"),
+        ("PastelerÃ­a", "Muffin", "u"),
+        ("PastelerÃ­a", "PorciÃ³n de dÃ¡tiles", "u"),
+        ("PastelerÃ­a", "PorciÃ³n de torta", "u"),
+        ("PastelerÃ­a", "Tarteleta", "u"),
+        # Elaborados", "Bavka choco", "u"),
         ("Elaborados", "Bavka pistacho", "u"),
         ("Elaborados", "Brioche pastelera", "u"),
         ("Elaborados", "Chipa", "u"),
@@ -150,7 +149,7 @@ def _crear_productos_iniciales(ws):
         ("Elaborados", "Pan suisse", "u"),
         ("Elaborados", "Roll canela", "u"),
         ("Elaborados", "Roll frambuesa", "u"),
-        ("Elaborados", "Tarta del día", "u"),
+        ("Elaborados", "Tarta del dÃ­a", "u"),
         # Varios
         ("Varios", "Aceite de girasol", "u"),
         ("Varios", "Aceite de oliva cocina", "u"),
@@ -160,129 +159,144 @@ def _crear_productos_iniciales(ws):
         ("Varios", "Arroz yamani cocido", "kg"),
         ("Varios", "Arroz yamani crudo", "kg"),
         ("Varios", "Arvejas", "u"),
-        ("Varios", "Azúcar común", "kg"),
-        ("Varios", "Azúcar impalpable", "kg"),
+        ("Varios", "AzÃºcar comÃºn", "kg"),
+        ("Varios", "AzÃºcar impalpable", "kg"),
         ("Varios", "Chocolate en barra", "u"),
         ("Varios", "Chocolate en trozos", "kg"),
         ("Varios", "Crema bariloche", "u"),
         ("Varios", "Crema pastelera de chocolate", "kg"),
-        ("Varios", "Crema pastelera de panadería", "kg"),
+        ("Varios", "Crema pastelera de panaderÃ­a", "kg"),
         ("Varios", "Dulce de leche", "kg"),
         ("Varios", "Frangipane", "kg"),
         ("Varios", "Frosting de queso", "g"),
         ("Varios", "Granola", "kg"),
         ("Varios", "Hongos cocidos", "u"),
-        ("Varios", "Lomitos de atún", "u"),
+        ("Varios", "Lomitos de atÃºn", "u"),
         ("Varios", "Maple de huevos", "u"),
-        ("Varios", "Manteca común", "u"),
+        ("Varios", "Manteca comÃºn", "u"),
         ("Varios", "Manteca saborizada", "u"),
         ("Varios", "Mermelada de cocina", "u"),
         ("Varios", "Mermelada de frambuesa", "u"),
         ("Varios", "Miel", "u"),
-        ("Varios", "Pasta de atún", "g"),
+        ("Varios", "Pasta de atÃºn", "g"),
         ("Varios", "Pasta de pistacho", "g"),
         ("Varios", "Pesto", "g"),
         ("Varios", "Picles de pepino", "u"),
-        ("Varios","
-            if cat and prod:
-                if cat not in productos:
-                    productos[cat] = []
-                productos[cat].append(prod)
-        log.info(f"✅ Productos cargados: {sum(len(v) for v in productos.values())} en {len(productos)} categorías")
-        return productos
+        ("Varios", "Pistacho procesado", "g"),
+        ("Varios", "PorciÃ³n de trucha grill", "u"),
+        ("Varios", "Queso crema", "u"),
+        ("Varios", "Queso sardo", "u"),
+        ("Varios", "Queso tybo", "u"),
+        ("Varios", "Quinoa cocida", "kg"),
+        ("Varios", "Quinoa crocante", "kg"),
+        ("Varios", "Salsa holandesa", "u"),
+        ("Varios", "Vinagre", "u"),
+        ("Varios", "Wraps de espinaca", "u"),
+        ("Varios", "ManÃ­", "kg"),
+        ("Varios", "Sal", "kg"),
+    ]
+    rows = [[cat, prod, unidad] for cat, prod, unidad in productos]
+    ws.append_rows(rows)
+    log.info(f"â CatÃ¡logo inicial creado: {len(rows)} productos")
+
+
+def guardar_envio(datos: dict):
+    """Guarda un envÃ­o en la pestaÃ±a 'EnvÃ­os' del Sheet."""
+    try:
+        gc, sh = get_sheets_client()
+        if not sh:
+            return
+        try:
+            ws = sh.worksheet("EnvÃ­os")
+        except:
+            ws = sh.add_worksheet("EnvÃ­os", rows=2000, cols=15)
+            ws.append_row([
+                "Fecha", "Hora", "Origen", "Destino", "Responsable envÃ­o",
+                "Transporte", "Productos", "Cantidades", "Bultos",
+                "Estado", "Responsable recepciÃ³n", "Fecha recepciÃ³n",
+                "Recibido OK", "Diferencias", "Observaciones"
+            ])
+
+        productos_str = "\n".join(datos.get("productos_lista", []))
+        cantidades_str = "\n".join(datos.get("cantidades_lista", []))
+        bultos_str = datos.get("bultos_total", "")
+
+        ws.append_row([
+            datos.get("fecha", ""),
+            datos.get("hora", ""),
+            datos.get("origen", ""),
+            datos.get("destino", ""),
+            datos.get("responsable", ""),
+            datos.get("transporte", ""),
+            productos_str,
+            cantidades_str,
+            bultos_str,
+            "ð¦ Enviado",
+            "",  # responsable recepciÃ³n
+            "",  # fecha recepciÃ³n
+            "",  # recibido OK
+            "",  # diferencias
+            datos.get("observaciones", ""),
+        ])
+        log.info(f"â EnvÃ­o guardado: {datos.get('origen')} â {datos.get('destino')}")
     except Exception as e:
-        log.error(f"❌ Error cargando productos: {e}")
-        return {}
+        log.error(f"â Error guardando envÃ­o: {e}")
 
 
-def _crear_productos_iniciales(ws):
-    """Crea el catálogo inicial de productos."""
-    productos = [
-        # Pastelería
-        ("Pastelería", "Alfajor de chocolate", "u"),
-        ("Pastelería", "Alfajor de nuez", "u"),
-        ("Pastelería", "Alfajor de pistacho", "u"),
-        ("Pastelería", "Barritas proteína", "u"),
-        ("Pastelería", "Brownie", "u"),
-        ("Pastelería", "Budín", "u"),
-        ("Pastelería", "Cookie chocolate", "u"),
-        ("Pastelería", "Cookie de maní", "u"),
-        ("Pastelería", "Cookie melu", "u"),
-        ("Pastelería", "Cookie nuez", "u"),
-        ("Pastelería", "Cookie red velvet", "u"),
-        ("Pastelería", "Cuadrado de coco", "u"),
-        ("Pastelería", "Muffin", "u"),
-        ("Pastelería", "Porción de dátiles", "u"),
-        ("Pastelería", "Porción de torta", "u"),
-        ("Pastelería", "Tarteleta", "u"),
-        # Elaborados
-        ("Elaborados", "Bavka choco", "u"),
-        ("Elaborados", "Bavka pistacho", "u"),
-        ("Elaborados", "Brioche pastelera", "u"),
-        ("Elaborados", "Chipa", "u"),
-        ("Elaborados", "Chipa prensado", "u"),
-        ("Elaborados", "Croissant", "u"),
-        ("Elaborados", "Medialunas", "u"),
-        ("Elaborados", "Pain au choco", "u"),
-        ("Elaborados", "Palitos de queso", "u"),
-        ("Elaborados", "Palmeras", "u"),
-        ("Elaborados", "Pan brioche", "u"),
-        ("Elaborados", "Pan brioche cuadrado", "u"),
-        ("Elaborados", "Pan masa madre con semillas", "u"),
-        ("Elaborados", "Pan suisse", "u"),
-        ("Elaborados", "Roll canela", "u"),
-        ("Elaborados", "Roll frambuesa", "u"),
-        ("Elaborados", "Tarta del día", "u"),
-        # Varios
-        ("Varios", "Aceite de girasol", "u"),
-        ("Varios", "Aceite de oliva cocina", "u"),
-        ("Varios", "Aderezo caesar", "u"),
-        ("Varios", "Almendras", "kg"),
-        ("Varios", "Almendras fileteadas", "kg"),
-        ("Varios", "Arroz yamani cocido", "kg"),
-        ("Varios", "Arroz yamani crudo", "kg"),
-        ("Varios", "Arvejas", "u"),
-        ("Varios", "Azúcar común", "kg"),
-        ("Varios", "Azúcar impalpable", "kg"),
-        ("Varios", "Chocolate en barra", "u"),
-        ("Varios", "Chocolate en trozos", "kg"),
-        ("Varios", "Crema bariloche", "u"),
-        ("Varios", "Crema pastelera de chocolate", "kg"),
-        ("Varios", "Crema pastelera de panadería", "kg"),
-        ("Varios", "Dulce de leche", "kg"),
-        ("Varios", "Frangipane", "kg"),
-        ("Varios", "Frosting de queso", "g"),
-        ("Varios", "Granola", "kg"),
-        ("Varios", "Hongos cocidos", "u"),
-        ("Varios", "Lomitos de atún", "u"),
-        ("Varios", "Maple de huevos", "u"),
-        ("Varios", "Manteca común", "u"),
-        ("Varios", "Manteca saborizada", "u"),
-        ("Varios", "Mermelada de cocina", "u"),
-        ("Varios", "Mermelada de frambuesa", "u"),
-        ("Varios", "Miel", "u"),
-        ("Varios", "Pasta de atún", "g"),
-        ("Varios", "Pasta de pistacho", "g"),
-        ("Varios", "Pesto", "g"),
-        ("Varios", "Picles de pepino", "u"),
-        ("Varios",                   "transporte": gcol(row, "Transporte"),
+def obtener_envios_pendientes(local_destino: str) -> list:
+    """Trae envÃ­os pendientes de recepciÃ³n para un local."""
+    try:
+        gc, sh = get_sheets_client()
+        if not sh:
+            return []
+        ws = sh.worksheet("EnvÃ­os")
+        all_values = ws.get_all_values()
+        h_idx = 0
+        for i, row in enumerate(all_values):
+            if "Fecha" in row and "Origen" in row:
+                h_idx = i
+                break
+        headers = all_values[h_idx]
+
+        def gcol(row, cn):
+            try:
+                idx = headers.index(cn)
+                return row[idx].strip() if idx < len(row) else ""
+            except:
+                return ""
+
+        pendientes = []
+        for i, row in enumerate(all_values[h_idx + 1:], start=h_idx + 2):
+            if not any(row):
+                continue
+            estado = gcol(row, "Estado")
+            destino = gcol(row, "Destino")
+            if "Enviado" in estado and local_destino.lower() in destino.lower():
+                pendientes.append({
+                    "fila": i,
+                    "fecha": gcol(row, "Fecha"),
+                    "hora": gcol(row, "Hora"),
+                    "origen": gcol(row, "Origen"),
+                    "destino": destino,
+                    "responsable": gcol(row, "Responsable envÃ­o"),
+                    "transporte": gcol(row, "Transporte"),
                     "productos": gcol(row, "Productos"),
                     "cantidades": gcol(row, "Cantidades"),
                     "bultos": gcol(row, "Bultos"),
                 })
         return pendientes
     except Exception as e:
-        log.error(f"❌ Error obteniendo envíos pendientes: {e}")
+        log.error(f"â Error obteniendo envÃ­os pendientes: {e}")
         return []
 
 
 def marcar_recibido(fila: int, responsable: str, recibido_ok: bool, diferencias: str = ""):
-    """Marca un envío como recibido en el Sheet."""
+    """Marca un envÃ­o como recibido en el Sheet."""
     try:
         gc, sh = get_sheets_client()
         if not sh:
             return
-        ws = sh.worksheet("Envíos")
+        ws = sh.worksheet("EnvÃ­os")
         headers = ws.row_values(1)
 
         def col_idx(name):
@@ -292,11 +306,11 @@ def marcar_recibido(fila: int, responsable: str, recibido_ok: bool, diferencias:
                 return None
 
         ahora = datetime.now()
-        estado = "✅ Recibido" if recibido_ok else "⚠️ Con diferencias"
+        estado = "â Recibido" if recibido_ok else "â ï¸ Con diferencias"
 
         col_estado = col_idx("Estado")
-        col_resp = col_idx("Responsable recepción")
-        col_fecha = col_idx("Fecha recepción")
+        col_resp = col_idx("Responsable recepciÃ³n")
+        col_fecha = col_idx("Fecha recepciÃ³n")
         col_ok = col_idx("Recibido OK")
         col_dif = col_idx("Diferencias")
 
@@ -307,16 +321,16 @@ def marcar_recibido(fila: int, responsable: str, recibido_ok: bool, diferencias:
         if col_fecha:
             ws.update_cell(fila, col_fecha, ahora.strftime("%d/%m/%Y %H:%M"))
         if col_ok:
-            ws.update_cell(fila, col_ok, "Sí" if recibido_ok else "No")
+            ws.update_cell(fila, col_ok, "SÃ­" if recibido_ok else "No")
         if col_dif and diferencias:
             ws.update_cell(fila, col_dif, diferencias)
 
-        log.info(f"✅ Envío fila {fila} marcado como {estado}")
+        log.info(f"â EnvÃ­o fila {fila} marcado como {estado}")
     except Exception as e:
-        log.error(f"❌ Error marcando recibido: {e}")
+        log.error(f"â Error marcando recibido: {e}")
 
 
-# ── HELPERS ───────────────────────────────────────────────────────────────────
+# ââ HELPERS âââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 def esc(t) -> str:
     if t is None:
         return "-"
@@ -329,17 +343,17 @@ def local_corto(local: str) -> str:
     return local.split(" - ")[-1].strip() if " - " in local else local
 
 
-# ── HANDLERS ──────────────────────────────────────────────────────────────────
+# ââ HANDLERS ââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââââ
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
-        [InlineKeyboardButton("📦 Nuevo envío", callback_data="menu_envio")],
-        [InlineKeyboardButton("📥 Recibir envío", callback_data="menu_recibir")],
+        [InlineKeyboardButton("ð¦ Nuevo envÃ­o", callback_data="menu_envio")],
+        [InlineKeyboardButton("ð¥ Recibir envÃ­o", callback_data="menu_recibir")],
     ]
     await update.message.reply_text(
-        "🥐 *Envíos Lharmonie*\n\n"
-        "Registrá envíos de mercadería entre locales.\n\n"
-        "¿Qué querés hacer?",
+        "ð¥ *EnvÃ­os Lharmonie*\n\n"
+        "RegistrÃ¡ envÃ­os de mercaderÃ­a entre locales.\n\n"
+        "Â¿QuÃ© querÃ©s hacer?",
         reply_markup=InlineKeyboardMarkup(keyboard),
         parse_mode="Markdown"
     )
@@ -351,19 +365,19 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = query.message.chat_id
     data = query.data
 
-    # ── MENÚ PRINCIPAL ─────────────────────────────────────────────────
+    # ââ MENÃ PRINCIPAL âââââââââââââââââââââââââââââââââââââââââââââââââ
     if data == "menu_envio":
         estado_usuario[chat_id] = {"paso": "eligiendo_origen", "productos_lista": [], "cantidades_lista": []}
         keyboard = [[InlineKeyboardButton(local_corto(l), callback_data=f"origen_{i}")] for i, l in enumerate(LOCALES)]
-        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-        await query.edit_message_text("📍 *¿De dónde sale el envío?*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        keyboard.append([InlineKeyboardButton("â Cancelar", callback_data="cancelar")])
+        await query.edit_message_text("ð *Â¿De dÃ³nde sale el envÃ­o?*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
 
     if data == "menu_recibir":
         estado_usuario[chat_id] = {"paso": "eligiendo_local_recibir"}
         keyboard = [[InlineKeyboardButton(local_corto(l), callback_data=f"recibir_local_{i}")] for i, l in enumerate(LOCALES)]
-        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-        await query.edit_message_text("📍 *¿En qué local estás?*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        keyboard.append([InlineKeyboardButton("â Cancelar", callback_data="cancelar")])
+        await query.edit_message_text("ð *Â¿En quÃ© local estÃ¡s?*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
         return
 
     if data == "cancelar":
@@ -371,7 +385,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Cancelado.")
         return
 
-    # ── FLUJO ENVÍO ────────────────────────────────────────────────────
+    # ââ FLUJO ENVÃO ââââââââââââââââââââââââââââââââââââââââââââââââââââ
     info = estado_usuario.get(chat_id, {})
 
     if data.startswith("origen_"):
@@ -379,9 +393,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info["origen"] = LOCALES[idx]
         info["paso"] = "eligiendo_destino"
         keyboard = [[InlineKeyboardButton(local_corto(l), callback_data=f"destino_{i}")] for i, l in enumerate(LOCALES) if i != idx]
-        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
+        keyboard.append([InlineKeyboardButton("â Cancelar", callback_data="cancelar")])
         await query.edit_message_text(
-            f"📍 Origen: *{local_corto(info['origen'])}*\n\n¿A dónde va el envío?",
+            f"ð Origen: *{local_corto(info['origen'])}*\n\nÂ¿A dÃ³nde va el envÃ­o?",
             reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
         return
@@ -391,12 +405,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info["destino"] = LOCALES[idx]
         info["paso"] = "esperando_nombre"
         await query.edit_message_text(
-            f"📦 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n\n👤 Escribí tu nombre:",
+            f"ð¦ *{local_corto(info['origen'])}* â *{local_corto(info['destino'])}*\n\nð¤ EscribÃ­ tu nombre:",
             parse_mode="Markdown"
         )
         return
 
-    # Elegir categoría
+    # Elegir categorÃ­a
     if data.startswith("cat_"):
         cat = data[4:]
         info["categoria_actual"] = cat
@@ -408,20 +422,20 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if i + 1 < len(prods):
                 row.append(InlineKeyboardButton(prods[i + 1], callback_data=f"prod_{i + 1}"))
             keyboard.append(row)
-        keyboard.append([InlineKeyboardButton("⬅️ Volver a categorías", callback_data="volver_categorias")])
-        keyboard.append([InlineKeyboardButton("✅ Terminar y enviar", callback_data="terminar_productos")])
+        keyboard.append([InlineKeyboardButton("â¬ï¸ Volver a categorÃ­as", callback_data="volver_categorias")])
+        keyboard.append([InlineKeyboardButton("â Terminar y enviar", callback_data="terminar_productos")])
 
         resumen = ""
         if info["productos_lista"]:
             lines = []
             for j, p in enumerate(info["productos_lista"]):
-                lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
-            resumen = "\n\n📋 *Agregados:*\n" + "\n".join(lines)
+                lines.append(f"  Â· {p}: {info['cantidades_lista'][j]}")
+            resumen = "\n\nð *Agregados:*\n" + "\n".join(lines)
 
         await query.edit_message_text(
-            f"📦 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n"
-            f"🏷️ Categoría: *{cat}*\n\n"
-            f"Elegí un producto:{resumen}",
+            f"ð¦ *{local_corto(info['origen'])}* â *{local_corto(info['destino'])}*\n"
+            f"ð·ï¸ CategorÃ­a: *{cat}*\n\n"
+            f"ElegÃ­ un producto:{resumen}",
             reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
         return
@@ -429,21 +443,21 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "volver_categorias":
         productos = cargar_productos()
         categorias = list(productos.keys())
-        keyboard = [[InlineKeyboardButton(f"🏷️ {cat}", callback_data=f"cat_{cat}")] for cat in categorias]
+        keyboard = [[InlineKeyboardButton(f"ð·ï¸ {cat}", callback_data=f"cat_{cat}")] for cat in categorias]
         if info.get("productos_lista"):
-            keyboard.append([InlineKeyboardButton(f"✅ Terminar y enviar ({len(info['productos_lista'])} productos)", callback_data="terminar_productos")])
-        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
+            keyboard.append([InlineKeyboardButton(f"â Terminar y enviar ({len(info['productos_lista'])} productos)", callback_data="terminar_productos")])
+        keyboard.append([InlineKeyboardButton("â Cancelar", callback_data="cancelar")])
 
         resumen = ""
         if info["productos_lista"]:
             lines = []
             for j, p in enumerate(info["productos_lista"]):
-                lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
-            resumen = "\n\n📋 *Agregados:*\n" + "\n".join(lines)
+                lines.append(f"  Â· {p}: {info['cantidades_lista'][j]}")
+            resumen = "\n\nð *Agregados:*\n" + "\n".join(lines)
 
         await query.edit_message_text(
-            f"📦 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n\n"
-            f"Elegí una categoría:{resumen}",
+            f"ð¦ *{local_corto(info['origen'])}* â *{local_corto(info['destino'])}*\n\n"
+            f"ElegÃ­ una categorÃ­a:{resumen}",
             reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
         return
@@ -457,28 +471,28 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             info["producto_actual"] = prods[idx]
             info["paso"] = "esperando_cantidad"
             await query.edit_message_text(
-                f"📦 *{info['producto_actual']}*\n\n"
-                f"Escribí la cantidad (número):",
+                f"ð¦ *{info['producto_actual']}*\n\n"
+                f"EscribÃ­ la cantidad (nÃºmero):",
                 parse_mode="Markdown"
             )
         return
 
-    # Terminar productos → preguntar bultos totales
+    # Terminar productos â preguntar bultos totales
     if data == "terminar_productos":
         if not info.get("productos_lista"):
-            await query.answer("Agregá al menos un producto", show_alert=True)
+            await query.answer("AgregÃ¡ al menos un producto", show_alert=True)
             return
         info["paso"] = "esperando_bultos_total"
 
         lines = []
         for j, p in enumerate(info["productos_lista"]):
-            lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
+            lines.append(f"  Â· {p}: {info['cantidades_lista'][j]}")
         resumen = "\n".join(lines)
 
         await query.edit_message_text(
-            f"📦 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n\n"
-            f"📋 *Productos:*\n{resumen}\n\n"
-            f"📦 ¿Cuántos bultos son en total?",
+            f"ð¦ *{local_corto(info['origen'])}* â *{local_corto(info['destino'])}*\n\n"
+            f"ð *Productos:*\n{resumen}\n\n"
+            f"ð¦ Â¿CuÃ¡ntos bultos son en total?",
             parse_mode="Markdown"
         )
         return
@@ -490,274 +504,138 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         lines = []
         for j, p in enumerate(info["productos_lista"]):
-            lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
+            lines.append(f"  Â· {p}: {info['cantidades_lista'][j]}")
         resumen = "\n".join(lines)
 
         keyboard = [
-            [InlineKeyboardButton("✅ Confirmar envío", callback_data="confirmar_envio")],
-            [InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")],
+            [InlineKeyboardButton("â Confirmar envÃ­o", callback_data="confirmar_envio")],
+            [InlineKeyboardButton("â Cancelar", callback_data="cancelar")],
         ]
         await query.edit_message_text(
-            f"📦 *Confirmar envío*\n\n"
-            f"📍 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n"
-            f"👤 {esc(info.get('responsable', ''))}\n"
-            f"🚗 {info['transporte']}\n"
-            f"📦 Bultos: {info.get('bultos_total', '?')}\n\n"
-            f"📋 *Productos:*\n{resumen}",
-            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
-        )
-        return
+            f"ð¦ *Confirmar envÃ­o*\n\n"
+¼'äãH
+ÛØØ[ØÛÜÊ[ÖÉÛÜYÙ[×J_J8¡¤
+ÛØØ[ØÛÜÊ[ÖÉÙ\Ý[É×J_J¼'äiÙ\ØÊ[ËÙ]
+	Ü\ÜÛØXIË	ÉÊJ_W¼'æ¥ÈÚ[ÖÉÝ[ÜÜI×_W¼'äé[ÜÎÚ[ËÙ]
+	Ø[Ü×ÝÝ[	Ë	ÏÉÊ_W¼'äâÈ
+ÙXÝÜÎÜ\Ý[Y[H\WÛX\Ý\R[[RÙ^XØ\X\Ý\
+Ù^XØ\
+K\ÙWÛ[ÙOHX\ÙÝÛ
+B]\Y]HOHÛÛ\X\Ù[[ÈZÜHH]][YKÝÊ
+B[ÖÈXÚHHHZÜKÝ[YJYÉ[KÉVHB[ÖÈÜHHHZÜKÝ[YJRSHBÝX\\Ù[[Ê[ÊBÈÝYXØ\[\ÈH×BÜ[[[Y\]J[ÖÈÙXÝÜ×Û\ÝHJN[\Ë\[
+0­ÈÜNÚ[ÖÉØØ[YY\×Û\ÝI×VÚ_HB\Ý[Y[HÚ[[\ÊB\Ù×ÛÝYH
+¼'äé
+Y]È[°ë[Ê¼'äãH
+ÛØØ[ØÛÜÊ[ÖÉÛÜYÙ[×J_J8¡¤
+ÛØØ[ØÛÜÊ[ÖÉÙ\Ý[É×J_J¼'äiÙ\ØÊ[ËÙ]
+	Ü\ÜÛØXIË	ÉÊJ_W¼'æ¥ÈÚ[ÖÉÝ[ÜÜI×_W¼'äé[ÜÎÚ[ËÙ]
+	Ø[Ü×ÝÝ[	Ë	ÏÉÊ_W¼'ådÚ[ÖÉÚÜI×_W¼'äâÈ
+ÙXÝÜÎÜ\Ý[Y[H
+BÜÚY[ÕQWÒQÎN]ØZ]ÛÛ^ÝÙ[ÛY\ÜØYÙJÚ]ÚYXÚY^[\Ù×ÛÝY\ÙWÛ[ÙOHX\ÙÝÛB^Ù\\ÜÂ]ØZ]]Y\KY]ÛY\ÜØYÙWÝ^
+¸§!H
+[°ë[ÈYÚ\ÝYÊ¼'äãHÛØØ[ØÛÜÊ[ÖÉÛÜYÙ[×J_H8¡¤ÛØØ[ØÛÜÊ[ÖÉÙ\Ý[É×J_W¼'äâÈÛ[[ÖÉÜÙXÝÜ×Û\ÝI×J_HÙXÝÜ×¼'æ¥ÈÚ[ÖÉÝ[ÜÜI×_H\ÙWÛ[ÙOHX\ÙÝÛ
+B\ÝY×Ý\ÝX\[ËÜ
+Ú]ÚYÛJB]\È8¥ 8¥ RÈPÒPT8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ Y]KÝ\ÝÚ]
+XÚX\ÛØØ[ÈNYH[
+]KÜ]
+ÈVÌJBØØ[HÐÐSTÖÚYB[Y[\ÈHØ[\Ù[[Ü×Ü[Y[\ÊØØ[
+BYÝ[Y[\Î]ØZ]]Y\KY]ÛY\ÜØYÙWÝ^
+¸§!HÈ^H[°ë[ÜÈ[Y[\È\HÛØØ[ØÛÜÊØØ[
+_KB\ÝY×Ý\ÝX\[ËÜ
+Ú]ÚYÛJB]\[ÖÈØØ[ÜXÚX\HHØØ[[ÖÈ[Y[\ÈHH[Y[\ÂÙ^XØ\H×BÜK[[[[Y\]J[Y[\ÊNÜÙÈH[[ÈÙXÝÜÈKÜ]
+JHY[ÈÙXÝÜÈH[ÙHÙ^XØ\\[
+Ò[[RÙ^XØ\]ÛÙ[ÉÙXÚI×_HÙ[ÉÚÜI×_H8 %ÛØØ[ØÛÜÊ[ÉÛÜYÙ[×J_H
+ÛÜÙßHÙ
+HØ[XÚ×Ù]OYXÚX\Ù[ÞÚ_H
+WJBÙ^XØ\\[
+Ò[[RÙ^XØ\]Û¸§cØ[Ù[\Ø[XÚ×Ù]OHØ[Ù[\WJB]ØZ]]Y\KY]ÛY\ÜØYÙWÝ^
+¼'äéH
+[°ë[ÜÈ[Y[\È\HÛØØ[ØÛÜÊØØ[
+_N\WÛX\Ý\R[[RÙ^XØ\X\Ý\
+Ù^XØ\
+K\ÙWÛ[ÙOHX\ÙÝÛ
+B]\Y]KÝ\ÝÚ]
+XÚX\Ù[ÈNYH[
+]KÜ]
+ÈVÌJB[Y[\ÈH[ËÙ]
+[Y[\È×JBYYH[[Y[\ÊN]\[H[Y[\ÖÚYB[ÖÈ[[×ØWÜXÚX\HH[[ÖÈ\ÛÈHH\Ü\[×ÛÛXWÜXÚX\ÙÈH[ÈÙXÝÜÈKÜ]
+BØ[ÈH[ÈØ[YY\ÈKÜ]
+B[ÜÈH[È[ÜÈKÜ]
+B[\ÈH×BÜ[[[Y\]JÙÊNÈHØ[ÖÚHY[Ø[ÊH[ÙHÈH[ÜÖÚHY[[ÜÊH[ÙHÈ[\Ë\[
+0­ÈÜNØßH8 %ØH[ÜÈB\Ý[Y[HÚ[[\ÊB]ØZ]]Y\KY]ÛY\ÜØYÙWÝ^
+¼'äéH
+[°ë[ÈHÛØØ[ØÛÜÊ[ÉÛÜYÙ[×J_J¼'äáHÙ[ÉÙXÚI×_HÙ[ÉÚÜI×_W¼'äi[pìÎÙ\ØÊ[ÉÜ\ÜÛØXI×J_W¼'æ¥ÈÙ[ÉÝ[ÜÜI×_W¼'äâÈ
+ÙXÝÜÎÜ\Ý[Y[W¼'äi\ØÜX°ëHHÛXH\HÛÛ\X\XÙ\ÚpìÛ\ÙWÛ[ÙOHX\ÙÝÛ
+B]\Y]HOHXÚX\ÝÙ×ÛÚÈ[H[ËÙ]
+[[×ØWÜXÚX\ßJB\ÜH[ËÙ]
+ÛXWÜXÚX\BX\Ø\ÜXÚXYÊ[È[HK\ÜXÚXY×ÛÚÏUYJB\Ù×ÛÝYH
+¸§!H
+[°ë[ÈXÚXYÊ¼'äãHÛØØ[ØÛÜÊ[ÉÛÜYÙ[×J_H8¡¤ÛØØ[ØÛÜÊ[ÉÙ\Ý[É×J_W¼'äiXÚXpìÎÙ\ØÊ\Ü
+_W¼'äâÈÙÈÒÈ
+BÜÚY[ÕQWÒQÎN]ØZ]ÛÛ^ÝÙ[ÛY\ÜØYÙJÚ]ÚYXÚY^[\Ù×ÛÝY\ÙWÛ[ÙOHX\ÙÝÛB^Ù\\ÜÂ]ØZ]]Y\KY]ÛY\ÜØYÙWÝ^
+¸§!H
+[°ë[ÈXÚXYÈÛÜXÝ[Y[K\ÙWÛ[ÙOHX\ÙÝÛB\ÝY×Ý\ÝX\[ËÜ
+Ú]ÚYÛJB]\Y]HOHXÚX\ØÛÛÙY\[ÚX\È[ÖÈ\ÛÈHH\Ü\[×ÙY\[ÚX\È]ØZ]]Y\KY]ÛY\ÜØYÙWÝ^
+¸¦¨;î#È\ØÜX°ëH]pêHY\[ÚX\È[ÛÛ\ÝNZ[\ÎÑ[\ÛÈYYX[[\ËYØ\ÛÝÛY\ÈHpè\×È\ÙWÛ[ÙOHX\ÙÝÛ
+B]\\Þ[ÈY[WÝ^Ê\]N\]KÛÛ^ÛÛ^\\ËQUSÕTJNÚ]ÚYH\]KYXÝ]WØÚ]Y^ÈH\]KY\ÜØYÙK^Ý\
 
-    if data == "confirmar_envio":
-        ahora = datetime.now()
-        info["fecha"] = ahora.strftime("%d/%m/%Y")
-        info["hora"] = ahora.strftime("%H:%M")
-        guardar_envio(info)
+BYÚ]ÚYÝ[\ÝY×Ý\ÝX\[ÎÈÚHÈ^H\ÝYË[ÜÝ\Y[°îÙ^XØ\HÂÒ[[RÙ^XØ\]Û¼'äéY]È[°ë[ÈØ[XÚ×Ù]OHY[WÙ[[ÈWKÒ[[RÙ^XØ\]Û¼'äéHXÚX\[°ë[ÈØ[XÚ×Ù]OHY[WÜXÚX\WKB]ØZ]\]KY\ÜØYÙK\WÝ^
+¼'éd
+[°ë[ÜÈ\[ÛYJ°¯Ô]pêH]Y\°ê\ÈXÙ\È\WÛX\Ý\R[[RÙ^XØ\X\Ý\
+Ù^XØ\
+K\ÙWÛ[ÙOHX\ÙÝÛ
+B]\[ÈH\ÝY×Ý\ÝX\[ÖØÚ]ÚYB\ÛÈH[ËÙ]
+\ÛÈBÈÛXH[]YH[°ëXBY\ÛÈOH\Ü\[×ÛÛXH[ÖÈ\ÜÛØXHHH^Â[ÖÈ\ÛÈHH[YÚY[×ØØ]YÛÜXHÙXÝÜÈHØ\Ø\ÜÙXÝÜÊ
+BØ]YÛÜX\ÈH\Ý
+ÙXÝÜËÙ^\Ê
+JBÙ^XØ\HÖÒ[[RÙ^XØ\]Û¼'ãíûî#ÈØØ]HØ[XÚ×Ù]OYØ]ÞØØ]HWHÜØ][Ø]YÛÜX\×BÙ^XØ\\[
+Ò[[RÙ^XØ\]Û¸§cØ[Ù[\Ø[XÚ×Ù]OHØ[Ù[\WJB]ØZ]\]KY\ÜØYÙK\WÝ^
+¼'äiÙ\ØÊ^Ê_W[YðëH[HØ]YÛÜ°ëXHHÙXÝÜÎ\WÛX\Ý\R[[RÙ^XØ\X\Ý\
+Ù^XØ\
+K\ÙWÛ[ÙOHX\ÙÝÛ
+B]\ÈØ[YY[ÙXÝÈ8¡¤YÜYØ\HÛ\HØ]YÛÜ°ëX\ÂY\ÛÈOH\Ü\[×ØØ[YYÙH[ËÙ]
+ÙXÝ×ØXÝX[B[ÖÈÙXÝÜ×Û\ÝHK\[
+Ù
+B[ÖÈØ[YY\×Û\ÝHK\[
+^ÊB[ÖÈ\ÛÈHH[YÚY[×ØØ]YÛÜXHÈÛ\HØ]YÛÜ°ëX\ÂÙXÝÜÈHØ\Ø\ÜÙXÝÜÊ
+BØ]YÛÜX\ÈH\Ý
+ÙXÝÜËÙ^\Ê
+JBÙ^XØ\HÖÒ[[RÙ^XØ\]Û¼'ãíûî#ÈØØ]HØ[XÚ×Ù]OYØ]ÞØØ]HWHÜØ][Ø]YÛÜX\×BÙ^XØ\\[
+Ò[[RÙ^XØ\]Û¸§!H\Z[\H[X\
+Û[[ÖÉÜÙXÝÜ×Û\ÝI×J_HÙXÝÜÊHØ[XÚ×Ù]OH\Z[\ÜÙXÝÜÈWJBÙ^XØ\\[
+Ò[[RÙ^XØ\]Û¸§cØ[Ù[\Ø[XÚ×Ù]OHØ[Ù[\WJB[\ÈH×BÜ[[[Y\]J[ÖÈÙXÝÜ×Û\ÝHJN[\Ë\[
+0­ÈÜNÚ[ÖÉØØ[YY\×Û\ÝI×VÚ_HB\Ý[Y[HÚ[[\ÊB]ØZ]\]KY\ÜØYÙK\WÝ^
+¸§!HYÜYØYÎ
+ÜÙJ8 %Ý^ßW¼'äâÈ
+ÙXÝÜÎÜ\Ý[Y[W[YðëHÝHØ]YÛÜ°ëXHÈ\Z[°èN\WÛX\Ý\R[[RÙ^XØ\X\Ý\
+Ù^XØ\
+K\ÙWÛ[ÙOHX\ÙÝÛ
+B]\È[ÜÈÝ[\È8¡¤[YÚ\[ÜÜBY\ÛÈOH\Ü\[×Ø[Ü×ÝÝ[[ÖÈ[Ü×ÝÝ[HH^Â[ÖÈ\ÛÈHH[YÚY[×Ý[ÜÜHÙ^XØ\HÖÒ[[RÙ^XØ\]ÛØ[XÚ×Ù]OY[ÜÜWÞÚ_HWHÜK[[[Y\]JSÔÔTÊWBÙ^XØ\\[
+Ò[[RÙ^XØ\]Û¸§cØ[Ù[\Ø[XÚ×Ù]OHØ[Ù[\WJB]ØZ]\]KY\ÜØYÙK\WÝ^
+¼'äé[ÜÎ
+Ý^ßJ¼'æ¥È0¯ÐðìÛ[ÈÙH[°ëXOÈ\WÛX\Ý\R[[RÙ^XØ\X\Ý\
+Ù^XØ\
+K\ÙWÛ[ÙOHX\ÙÝÛ
+B]\ÈÛXH[]YHXÚXBY\ÛÈOH\Ü\[×ÛÛXWÜXÚX\[ÖÈÛXWÜXÚX\HH^ÂÙ^XØ\HÂÒ[[RÙ^XØ\]Û¸§!HÙÈÒÈØ[XÚ×Ù]OHXÚX\ÝÙ×ÛÚÈWKÒ[[RÙ^XØ\]Û¸¦¨;î#È^HY\[ÚX\ÈØ[XÚ×Ù]OHXÚX\ØÛÛÙY\[ÚX\ÈWKB]ØZ]\]KY\ÜØYÙK\WÝ^
+¼'äiÙ\ØÊ^Ê_W°¯ÓYðìÈÙÈY[È\WÛX\Ý\R[[RÙ^XØ\X\Ý\
+Ù^XØ\
+K\ÙWÛ[ÙOHX\ÙÝÛ
+B]\ÈY\[ÚX\ÂY\ÛÈOH\Ü\[×ÙY\[ÚX\È[H[ËÙ]
+[[×ØWÜXÚX\ßJB\ÜH[ËÙ]
+ÛXWÜXÚX\BX\Ø\ÜXÚXYÊ[È[HK\ÜXÚXY×ÛÚÏQ[ÙKY\[ÚX\Ï]^ÊB\Ù×ÛÝYH
+¸¦¨;î#È
+[°ë[ÈXÚXYÈÛÛY\[ÚX\Ê¼'äãHÛØØ[ØÛÜÊ[ÉÛÜYÙ[×J_H8¡¤ÛØØ[ØÛÜÊ[ÉÙ\Ý[É×J_W¼'äiXÚXpìÎÙ\ØÊ\Ü
+_W¼'äçHY\[ÚX\ÎÙ\ØÊ^Ê_H
+BÜÚY[ÕQWÒQÎN]ØZ]ÛÛ^ÝÙ[ÛY\ÜØYÙJÚ]ÚYXÚY^[\Ù×ÛÝY\ÙWÛ[ÙOHX\ÙÝÛB^Ù\\ÜÂ]ØZ]\]KY\ÜØYÙK\WÝ^
+¸¦¨;î#È
+[°ë[ÈYÚ\ÝYÈÛÛY\[ÚX\Ë[\]Z\ÈYHÝYXØYË\ÙWÛ[ÙOHX\ÙÝÛB\ÝY×Ý\ÝX\[ËÜ
+Ú]ÚYÛJB]\È8¥ 8¥ PRS8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ 8¥ YXZ[
+NYÝSQÔSWÕÒÑS[
+¸§c[HSSÔ×ÕSQÔSWÕÒÑSB]\[
+¼'æ¦[XÚX[ÈÝ[°ë[ÜÈ\[ÛYKB\H\XØ][ÛZ[\
+KÚÙ[SQÔSWÕÒÑSKZ[
 
-        # Notificar
-        lines = []
-        for j, p in enumerate(info["productos_lista"]):
-            lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
-        resumen = "\n".join(lines)
-
-        msg_notif = (
-            f"📦 *Nuevo envío*\n\n"
-            f"📍 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n"
-            f"👤 {esc(info.get('responsable', ''))}\n"
-            f"🚗 {info['transporte']}\n"
-            f"📦 Bultos: {info.get('bultos_total', '?')}\n"
-            f"🕐 {info['hora']}\n\n"
-            f"📋 *Productos:*\n{resumen}"
-        )
-
-        for cid in NOTIFY_IDS:
-            try:
-                await context.bot.send_message(chat_id=cid, text=msg_notif, parse_mode="Markdown")
-            except:
-                pass
-
-        await query.edit_message_text(
-            f"✅ *Envío registrado*\n\n"
-            f"📍 {local_corto(info['origen'])} → {local_corto(info['destino'])}\n"
-            f"📋 {len(info['productos_lista'])} productos\n"
-            f"🚗 {info['transporte']}",
-            parse_mode="Markdown"
-        )
-        estado_usuario.pop(chat_id, None)
-        return
-
-    # ── FLUJO RECIBIR ──────────────────────────────────────────────────
-    if data.startswith("recibir_local_"):
-        idx = int(data.split("_")[2])
-        local = LOCALES[idx]
-        pendientes = obtener_envios_pendientes(local)
-
-        if not pendientes:
-            await query.edit_message_text(f"✅ No hay envíos pendientes para {local_corto(local)}.")
-            estado_usuario.pop(chat_id, None)
-            return
-
-        info["local_recibir"] = local
-        info["pendientes"] = pendientes
-        keyboard = []
-        for i, env in enumerate(pendientes):
-            n_prods = len(env["productos"].split("\n")) if env["productos"] else 0
-            keyboard.append([InlineKeyboardButton(
-                f"{env['fecha']} {env['hora']} — {local_corto(env['origen'])} ({n_prods} prod)",
-                callback_data=f"recibir_env_{i}"
-            )])
-        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-        await query.edit_message_text(
-            f"📥 *Envíos pendientes para {local_corto(local)}:*",
-            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
-        )
-        return
-
-    if data.startswith("recibir_env_"):
-        idx = int(data.split("_")[2])
-        pendientes = info.get("pendientes", [])
-        if idx >= len(pendientes):
-            return
-        env = pendientes[idx]
-        info["envio_a_recibir"] = env
-        info["paso"] = "esperando_nombre_recibir"
-
-        prods = env["productos"].split("\n")
-        cants = env["cantidades"].split("\n")
-        bultos = env["bultos"].split("\n")
-        lines = []
-        for j, p in enumerate(prods):
-            c = cants[j] if j < len(cants) else "?"
-            b = bultos[j] if j < len(bultos) else "?"
-            lines.append(f"  · {p}: {c} — {b} bultos")
-        resumen = "\n".join(lines)
-
-        await query.edit_message_text(
-            f"📥 *Envío de {local_corto(env['origen'])}*\n"
-            f"📅 {env['fecha']} {env['hora']}\n"
-            f"👤 Envió: {esc(env['responsable'])}\n"
-            f"🚗 {env['transporte']}\n\n"
-            f"📋 *Productos:*\n{resumen}\n\n"
-            f"👤 Escribí tu nombre para confirmar recepción:",
-            parse_mode="Markdown"
-        )
-        return
-
-    if data == "recibir_todo_ok":
-        env = info.get("envio_a_recibir", {})
-        resp = info.get("nombre_recibir", "")
-        marcar_recibido(env["fila"], resp, recibido_ok=True)
-
-        msg_notif = (
-            f"✅ *Envío recibido*\n\n"
-            f"📍 {local_corto(env['origen'])} → {local_corto(env['destino'])}\n"
-            f"👤 Recibió: {esc(resp)}\n"
-            f"📋 Todo OK"
-        )
-        for cid in NOTIFY_IDS:
-            try:
-                await context.bot.send_message(chat_id=cid, text=msg_notif, parse_mode="Markdown")
-            except:
-                pass
-
-        await query.edit_message_text(f"✅ *Envío recibido correctamente.*", parse_mode="Markdown")
-        estado_usuario.pop(chat_id, None)
-        return
-
-    if data == "recibir_con_diferencias":
-        info["paso"] = "esperando_diferencias"
-        await query.edit_message_text(
-            "⚠️ Escribí qué diferencias encontraste:\n\n"
-            "Ejemplo: _Faltaron 3 medialunas, llegaron 2 brownies de más_",
-            parse_mode="Markdown"
-        )
-        return
-
-
-async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    chat_id = update.effective_chat.id
-    texto = update.message.text.strip()
-
-    if chat_id not in estado_usuario:
-        # Si no hay estado, mostrar menú
-        keyboard = [
-            [InlineKeyboardButton("📦 Nuevo envío", callback_data="menu_envio")],
-            [InlineKeyboardButton("📥 Recibir envío", callback_data="menu_recibir")],
-        ]
-        await update.message.reply_text(
-            "🥐 *Envíos Lharmonie*\n\n¿Qué querés hacer?",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
-        return
-
-    info = estado_usuario[chat_id]
-    paso = info.get("paso", "")
-
-    # Nombre del que envía
-    if paso == "esperando_nombre":
-        info["responsable"] = texto
-        info["paso"] = "eligiendo_categoria"
-        productos = cargar_productos()
-        categorias = list(productos.keys())
-        keyboard = [[InlineKeyboardButton(f"🏷️ {cat}", callback_data=f"cat_{cat}")] for cat in categorias]
-        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-        await update.message.reply_text(
-            f"👤 {esc(texto)}\n\nElegí una categoría de productos:",
-            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
-        )
-        return
-
-    # Cantidad del producto → agregar y volver a categorías
-    if paso == "esperando_cantidad":
-        prod = info.get("producto_actual", "")
-        info["productos_lista"].append(prod)
-        info["cantidades_lista"].append(texto)
-        info["paso"] = "eligiendo_categoria"
-
-        # Volver a categorías
-        productos = cargar_productos()
-        categorias = list(productos.keys())
-        keyboard = [[InlineKeyboardButton(f"🏷️ {cat}", callback_data=f"cat_{cat}")] for cat in categorias]
-        keyboard.append([InlineKeyboardButton(f"✅ Terminar y enviar ({len(info['productos_lista'])} productos)", callback_data="terminar_productos")])
-        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-
-        lines = []
-        for j, p in enumerate(info["productos_lista"]):
-            lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
-        resumen = "\n".join(lines)
-
-        await update.message.reply_text(
-            f"✅ Agregado: *{prod}* — {texto}\n\n"
-            f"📋 *Productos:*\n{resumen}\n\n"
-            f"Elegí otra categoría o terminá:",
-            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
-        )
-        return
-
-    # Bultos totales → elegir transporte
-    if paso == "esperando_bultos_total":
-        info["bultos_total"] = texto
-        info["paso"] = "eligiendo_transporte"
-        keyboard = [[InlineKeyboardButton(t, callback_data=f"transporte_{i}")] for i, t in enumerate(TRANSPORTES)]
-        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-        await update.message.reply_text(
-            f"📦 Bultos: *{texto}*\n\n🚗 ¿Cómo se envía?",
-            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
-        )
-        return
-
-    # Nombre del que recibe
-    if paso == "esperando_nombre_recibir":
-        info["nombre_recibir"] = texto
-        keyboard = [
-            [InlineKeyboardButton("✅ Todo OK", callback_data="recibir_todo_ok")],
-            [InlineKeyboardButton("⚠️ Hay diferencias", callback_data="recibir_con_diferencias")],
-        ]
-        await update.message.reply_text(
-            f"👤 {esc(texto)}\n\n¿Llegó todo bien?",
-            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
-        )
-        return
-
-    # Diferencias
-    if paso == "esperando_diferencias":
-        env = info.get("envio_a_recibir", {})
-        resp = info.get("nombre_recibir", "")
-        marcar_recibido(env["fila"], resp, recibido_ok=False, diferencias=texto)
-
-        msg_notif = (
-            f"⚠️ *Envío recibido con diferencias*\n\n"
-            f"📍 {local_corto(env['origen'])} → {local_corto(env['destino'])}\n"
-            f"👤 Recibió: {esc(resp)}\n"
-            f"📝 Diferencias: {esc(texto)}"
-        )
-        for cid in NOTIFY_IDS:
-            try:
-                await context.bot.send_message(chat_id=cid, text=msg_notif, parse_mode="Markdown")
-            except:
-                pass
-
-        await update.message.reply_text(f"⚠️ *Envío registrado con diferencias.*\nEl equipo fue notificado.", parse_mode="Markdown")
-        estado_usuario.pop(chat_id, None)
-        return
-
-
-# ── MAIN ──────────────────────────────────────────────────────────────────────
-def main():
-    if not TELEGRAM_TOKEN:
-        print("❌ Falta ENVIOS_TELEGRAM_TOKEN")
-        return
-    print("🚚 Iniciando Bot Envíos Lharmonie...")
-
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-    app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CallbackQueryHandler(callback_handler))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_texto))
-
-    print("✅ Bot Envíos corriendo.")
-    app.run_polling(drop_pending_updates=True)
-
-
-if __name__ == "__main__":
-    main()
+B\YÚ[\ÛÛ[X[[\Ý\ÛYÜÝ\
+JB\YÚ[\Ø[XÚÔ]Y\R[\Ø[XÚ×Ú[\JB\YÚ[\Y\ÜØYÙR[\[\ËV	[\ËÓÓSPS[WÝ^ÊJB[
+¸§!HÝ[°ë[ÜÈÛÜY[ËB\[ÜÛ[ÊÜÜ[[×Ý\]\ÏUYJBY×Û[YW×ÈOH×ÛXZ[×ÈXZ[
+B
