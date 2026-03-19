@@ -183,104 +183,89 @@ def _crear_productos_iniciales(ws):
         ("Varios", "Pasta de pistacho", "g"),
         ("Varios", "Pesto", "g"),
         ("Varios", "Picles de pepino", "u"),
-        ("Varios", "Pistacho procesado", "g"),
-        ("Varios", "Porción de trucha grill", "u"),
-        ("Varios", "Queso crema", "u"),
-        ("Varios", "Queso sardo", "u"),
-        ("Varios", "Queso tybo", "u"),
-        ("Varios", "Quinoa cocida", "kg"),
-        ("Varios", "Quinoa crocante", "kg"),
-        ("Varios", "Salsa holandesa", "u"),
-        ("Varios", "Vinagre", "u"),
-        ("Varios", "Wraps de espinaca", "u"),
-        ("Varios", "Maní", "kg"),
-        ("Varios", "Sal", "kg"),
-    ]
-    rows = [[cat, prod, unidad] for cat, prod, unidad in productos]
-    ws.append_rows(rows)
-    log.info(f"✅ Catálogo inicial creado: {len(rows)} productos")
-
-
-def guardar_envio(datos: dict):
-    """Guarda un envío en la pestaña 'Envíos' del Sheet."""
-    try:
-        gc, sh = get_sheets_client()
-        if not sh:
-            return
-        try:
-            ws = sh.worksheet("Envíos")
-        except:
-            ws = sh.add_worksheet("Envíos", rows=2000, cols=15)
-            ws.append_row([
-                "Fecha", "Hora", "Origen", "Destino", "Responsable envío",
-                "Transporte", "Productos", "Cantidades", "Bultos",
-                "Estado", "Responsable recepción", "Fecha recepción",
-                "Recibido OK", "Diferencias", "Observaciones"
-            ])
-
-        productos_str = "\n".join(datos.get("productos_lista", []))
-        cantidades_str = "\n".join(datos.get("cantidades_lista", []))
-        bultos_str = "\n".join(datos.get("bultos_lista", []))
-
-        ws.append_row([
-            datos.get("fecha", ""),
-            datos.get("hora", ""),
-            datos.get("origen", ""),
-            datos.get("destino", ""),
-            datos.get("responsable", ""),
-            datos.get("transporte", ""),
-            productos_str,
-            cantidades_str,
-            bultos_str,
-            "📦 Enviado",
-            "",  # responsable recepción
-            "",  # fecha recepción
-            "",  # recibido OK
-            "",  # diferencias
-            datos.get("observaciones", ""),
-        ])
-        log.info(f"✅ Envío guardado: {datos.get('origen')} → {datos.get('destino')}")
+        ("Varios","
+            if cat and prod:
+                if cat not in productos:
+                    productos[cat] = []
+                productos[cat].append(prod)
+        log.info(f"✅ Productos cargados: {sum(len(v) for v in productos.values())} en {len(productos)} categorías")
+        return productos
     except Exception as e:
-        log.error(f"❌ Error guardando envío: {e}")
+        log.error(f"❌ Error cargando productos: {e}")
+        return {}
 
 
-def obtener_envios_pendientes(local_destino: str) -> list:
-    """Trae envíos pendientes de recepción para un local."""
-    try:
-        gc, sh = get_sheets_client()
-        if not sh:
-            return []
-        ws = sh.worksheet("Envíos")
-        all_values = ws.get_all_values()
-        h_idx = 0
-        for i, row in enumerate(all_values):
-            if "Fecha" in row and "Origen" in row:
-                h_idx = i
-                break
-        headers = all_values[h_idx]
-
-        def gcol(row, cn):
-            try:
-                idx = headers.index(cn)
-                return row[idx].strip() if idx < len(row) else ""
-            except:
-                return ""
-
-        pendientes = []
-        for i, row in enumerate(all_values[h_idx + 1:], start=h_idx + 2):
-            if not any(row):
-                continue
-            estado = gcol(row, "Estado")
-            destino = gcol(row, "Destino")
-            if "Enviado" in estado and local_destino.lower() in destino.lower():
-                pendientes.append({
-                    "fila": i,
-                    "fecha": gcol(row, "Fecha"),
-                    "hora": gcol(row, "Hora"),
-                    "origen": gcol(row, "Origen"),
-                    "destino": destino,
-                    "responsable": gcol(row, "Responsable envío"),
-                    "transporte": gcol(row, "Transporte"),
+def _crear_productos_iniciales(ws):
+    """Crea el catálogo inicial de productos."""
+    productos = [
+        # Pastelería
+        ("Pastelería", "Alfajor de chocolate", "u"),
+        ("Pastelería", "Alfajor de nuez", "u"),
+        ("Pastelería", "Alfajor de pistacho", "u"),
+        ("Pastelería", "Barritas proteína", "u"),
+        ("Pastelería", "Brownie", "u"),
+        ("Pastelería", "Budín", "u"),
+        ("Pastelería", "Cookie chocolate", "u"),
+        ("Pastelería", "Cookie de maní", "u"),
+        ("Pastelería", "Cookie melu", "u"),
+        ("Pastelería", "Cookie nuez", "u"),
+        ("Pastelería", "Cookie red velvet", "u"),
+        ("Pastelería", "Cuadrado de coco", "u"),
+        ("Pastelería", "Muffin", "u"),
+        ("Pastelería", "Porción de dátiles", "u"),
+        ("Pastelería", "Porción de torta", "u"),
+        ("Pastelería", "Tarteleta", "u"),
+        # Elaborados
+        ("Elaborados", "Bavka choco", "u"),
+        ("Elaborados", "Bavka pistacho", "u"),
+        ("Elaborados", "Brioche pastelera", "u"),
+        ("Elaborados", "Chipa", "u"),
+        ("Elaborados", "Chipa prensado", "u"),
+        ("Elaborados", "Croissant", "u"),
+        ("Elaborados", "Medialunas", "u"),
+        ("Elaborados", "Pain au choco", "u"),
+        ("Elaborados", "Palitos de queso", "u"),
+        ("Elaborados", "Palmeras", "u"),
+        ("Elaborados", "Pan brioche", "u"),
+        ("Elaborados", "Pan brioche cuadrado", "u"),
+        ("Elaborados", "Pan masa madre con semillas", "u"),
+        ("Elaborados", "Pan suisse", "u"),
+        ("Elaborados", "Roll canela", "u"),
+        ("Elaborados", "Roll frambuesa", "u"),
+        ("Elaborados", "Tarta del día", "u"),
+        # Varios
+        ("Varios", "Aceite de girasol", "u"),
+        ("Varios", "Aceite de oliva cocina", "u"),
+        ("Varios", "Aderezo caesar", "u"),
+        ("Varios", "Almendras", "kg"),
+        ("Varios", "Almendras fileteadas", "kg"),
+        ("Varios", "Arroz yamani cocido", "kg"),
+        ("Varios", "Arroz yamani crudo", "kg"),
+        ("Varios", "Arvejas", "u"),
+        ("Varios", "Azúcar común", "kg"),
+        ("Varios", "Azúcar impalpable", "kg"),
+        ("Varios", "Chocolate en barra", "u"),
+        ("Varios", "Chocolate en trozos", "kg"),
+        ("Varios", "Crema bariloche", "u"),
+        ("Varios", "Crema pastelera de chocolate", "kg"),
+        ("Varios", "Crema pastelera de panadería", "kg"),
+        ("Varios", "Dulce de leche", "kg"),
+        ("Varios", "Frangipane", "kg"),
+        ("Varios", "Frosting de queso", "g"),
+        ("Varios", "Granola", "kg"),
+        ("Varios", "Hongos cocidos", "u"),
+        ("Varios", "Lomitos de atún", "u"),
+        ("Varios", "Maple de huevos", "u"),
+        ("Varios", "Manteca común", "u"),
+        ("Varios", "Manteca saborizada", "u"),
+        ("Varios", "Mermelada de cocina", "u"),
+        ("Varios", "Mermelada de frambuesa", "u"),
+        ("Varios", "Miel", "u"),
+        ("Varios", "Pasta de atún", "g"),
+        ("Varios", "Pasta de pistacho", "g"),
+        ("Varios", "Pesto", "g"),
+        ("Varios", "Picles de pepino", "u"),
+        ("Varios",                   "transporte": gcol(row, "Transporte"),
                     "productos": gcol(row, "Productos"),
                     "cantidades": gcol(row, "Cantidades"),
                     "bultos": gcol(row, "Bultos"),
@@ -368,7 +353,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── MENÚ PRINCIPAL ─────────────────────────────────────────────────
     if data == "menu_envio":
-        estado_usuario[chat_id] = {"paso": "eligiendo_origen", "productos_lista": [], "cantidades_lista": [], "bultos_lista": []}
+        estado_usuario[chat_id] = {"paso": "eligiendo_origen", "productos_lista": [], "cantidades_lista": []}
         keyboard = [[InlineKeyboardButton(local_corto(l), callback_data=f"origen_{i}")] for i, l in enumerate(LOCALES)]
         keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
         await query.edit_message_text("📍 *¿De dónde sale el envío?*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -430,7 +415,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if info["productos_lista"]:
             lines = []
             for j, p in enumerate(info["productos_lista"]):
-                lines.append(f"  · {p}: {info['cantidades_lista'][j]} — {info['bultos_lista'][j]} bultos")
+                lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
             resumen = "\n\n📋 *Agregados:*\n" + "\n".join(lines)
 
         await query.edit_message_text(
@@ -453,7 +438,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if info["productos_lista"]:
             lines = []
             for j, p in enumerate(info["productos_lista"]):
-                lines.append(f"  · {p}: {info['cantidades_lista'][j]} — {info['bultos_lista'][j]} bultos")
+                lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
             resumen = "\n\n📋 *Agregados:*\n" + "\n".join(lines)
 
         await query.edit_message_text(
@@ -478,19 +463,23 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
-    # Terminar productos → elegir transporte
+    # Terminar productos → preguntar bultos totales
     if data == "terminar_productos":
         if not info.get("productos_lista"):
             await query.answer("Agregá al menos un producto", show_alert=True)
             return
-        info["paso"] = "eligiendo_transporte"
-        keyboard = [[InlineKeyboardButton(t, callback_data=f"transporte_{i}")] for i, t in enumerate(TRANSPORTES)]
-        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
+        info["paso"] = "esperando_bultos_total"
+
+        lines = []
+        for j, p in enumerate(info["productos_lista"]):
+            lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
+        resumen = "\n".join(lines)
+
         await query.edit_message_text(
-            f"📦 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n"
-            f"📋 {len(info['productos_lista'])} productos\n\n"
-            f"🚗 ¿Cómo se envía?",
-            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+            f"📦 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n\n"
+            f"📋 *Productos:*\n{resumen}\n\n"
+            f"📦 ¿Cuántos bultos son en total?",
+            parse_mode="Markdown"
         )
         return
 
@@ -501,7 +490,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         lines = []
         for j, p in enumerate(info["productos_lista"]):
-            lines.append(f"  · {p}: {info['cantidades_lista'][j]} — {info['bultos_lista'][j]} bultos")
+            lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
         resumen = "\n".join(lines)
 
         keyboard = [
@@ -512,7 +501,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📦 *Confirmar envío*\n\n"
             f"📍 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n"
             f"👤 {esc(info.get('responsable', ''))}\n"
-            f"🚗 {info['transporte']}\n\n"
+            f"🚗 {info['transporte']}\n"
+            f"📦 Bultos: {info.get('bultos_total', '?')}\n\n"
             f"📋 *Productos:*\n{resumen}",
             reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
@@ -527,7 +517,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Notificar
         lines = []
         for j, p in enumerate(info["productos_lista"]):
-            lines.append(f"  · {p}: {info['cantidades_lista'][j]} — {info['bultos_lista'][j]} bultos")
+            lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
         resumen = "\n".join(lines)
 
         msg_notif = (
@@ -535,6 +525,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"📍 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n"
             f"👤 {esc(info.get('responsable', ''))}\n"
             f"🚗 {info['transporte']}\n"
+            f"📦 Bultos: {info.get('bultos_total', '?')}\n"
             f"🕐 {info['hora']}\n\n"
             f"📋 *Productos:*\n{resumen}"
         )
@@ -677,20 +668,11 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
 
-    # Cantidad del producto
+    # Cantidad del producto → agregar y volver a categorías
     if paso == "esperando_cantidad":
-        info["cantidad_temp"] = texto
-        info["paso"] = "esperando_bultos"
-        await update.message.reply_text(f"📦 *{info['producto_actual']}*: {texto}\n\n¿Cuántos bultos?", parse_mode="Markdown")
-        return
-
-    # Bultos
-    if paso == "esperando_bultos":
         prod = info.get("producto_actual", "")
-        cant = info.get("cantidad_temp", "")
         info["productos_lista"].append(prod)
-        info["cantidades_lista"].append(cant)
-        info["bultos_lista"].append(texto)
+        info["cantidades_lista"].append(texto)
         info["paso"] = "eligiendo_categoria"
 
         # Volver a categorías
@@ -702,13 +684,25 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         lines = []
         for j, p in enumerate(info["productos_lista"]):
-            lines.append(f"  · {p}: {info['cantidades_lista'][j]} — {info['bultos_lista'][j]} bultos")
+            lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
         resumen = "\n".join(lines)
 
         await update.message.reply_text(
-            f"✅ Agregado: *{prod}* — {cant} — {texto} bultos\n\n"
+            f"✅ Agregado: *{prod}* — {texto}\n\n"
             f"📋 *Productos:*\n{resumen}\n\n"
             f"Elegí otra categoría o terminá:",
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+        )
+        return
+
+    # Bultos totales → elegir transporte
+    if paso == "esperando_bultos_total":
+        info["bultos_total"] = texto
+        info["paso"] = "eligiendo_transporte"
+        keyboard = [[InlineKeyboardButton(t, callback_data=f"transporte_{i}")] for i, t in enumerate(TRANSPORTES)]
+        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
+        await update.message.reply_text(
+            f"📦 Bultos: *{texto}*\n\n🚗 ¿Cómo se envía?",
             reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
         return
