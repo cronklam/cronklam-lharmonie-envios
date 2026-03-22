@@ -426,6 +426,32 @@ def _parsear_carga_manual(texto: str) -> list:
     return items
 
 
+async def _mostrar_resumen_editable(query, info):
+    """Muestra el resumen editable con botones para editar/eliminar cada producto."""
+    lines = []
+    keyboard = []
+    for j, p in enumerate(info["productos_lista"]):
+        cant = info["cantidades_lista"][j]
+        lines.append(f"  {j + 1}\\. *{esc(p)}*: {cant}")
+        keyboard.append([
+            InlineKeyboardButton(f"✏️ {p[:20]}: {cant}", callback_data=f"edit_prod_{j}"),
+            InlineKeyboardButton("🗑️", callback_data=f"del_prod_{j}"),
+        ])
+    resumen = "\n".join(lines)
+
+    keyboard.append([InlineKeyboardButton("➕ Agregar más productos", callback_data="resumen_agregar_mas")])
+    keyboard.append([InlineKeyboardButton(f"✅ Confirmar productos ({len(info['productos_lista'])})", callback_data="resumen_ok")])
+    keyboard.append([InlineKeyboardButton("❌ Cancelar envío", callback_data="cancelar")])
+
+    await query.edit_message_text(
+        f"📋 *Revisá los productos antes de continuar:*\n\n"
+        f"📦 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n\n"
+        f"{resumen}\n\n"
+        f"_Tocá un producto para editar la cantidad o eliminarlo._",
+        reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+    )
+
+
 def agregar_producto_nuevo(nombre: str, categoria: str = "Varios", unidad: str = "u"):
     """Agrega un producto nuevo a la pestaña 'Productos Envío' del Sheet."""
     try:
@@ -591,12 +617,78 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
         return
 
-    # Terminar productos → preguntar bultos totales
+    # Terminar productos → resumen editable
     if data == "terminar_productos":
         if not info.get("productos_lista"):
             await query.answer("Agregá al menos un producto", show_alert=True)
             return
+        info["paso"] = "resumen_editable"
+        await _mostrar_resumen_editable(query, info)
+        return
+
+    # Editar cantidad de un producto en el resumen
+    if data.startswith("edit_prod_"):
+        idx = int(data.split("_")[2])
+        if idx < len(info.get("productos_lista", [])):
+            info["editando_idx"] = idx
+            info["paso"] = "editando_cantidad"
+            prod = info["productos_lista"][idx]
+            cant_actual = info["cantidades_lista"][idx]
+            await query.edit_message_text(
+                f"✏️ *{prod}* — Cantidad actual: *{cant_actual}*\n\n"
+                f"Escribí la nueva cantidad:",
+                parse_mode="Markdown"
+            )
+        return
+
+    # Eliminar un producto del resumen
+    if data.startswith("del_prod_"):
+        idx = int(data.split("_")[2])
+        if idx < len(info.get("productos_lista", [])):
+            eliminado = info["productos_lista"].pop(idx)
+            info["cantidades_lista"].pop(idx)
+            info["tipos_lista"].pop(idx)
+            await query.answer(f"🗑️ {eliminado} eliminado")
+            if not info["productos_lista"]:
+                # Sin productos, volver a categorías
+                info["paso"] = "eligiendo_categoria"
+                productos = cargar_productos()
+                categorias = list(productos.keys())
+                keyboard = [[InlineKeyboardButton(f"🏷️ {cat}", callback_data=f"cat_{cat}")] for cat in categorias]
+                keyboard.append([InlineKeyboardButton("✏️ Carga manual", callback_data="carga_manual")])
+                keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
+                await query.edit_message_text(
+                    "Se eliminaron todos los productos.\n\nElegí una categoría para agregar:",
+                    reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+                )
+                return
+            await _mostrar_resumen_editable(query, info)
+        return
+
+    # Confirmar resumen → preguntar bultos
+    if data == "resumen_ok":
         info["paso"] = "esperando_bultos_total"
+        lines = []
+        for j, p in enumerate(info["productos_lista"]):
+            lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
+        resumen = "\n".join(lines)
+        await query.edit_message_text(
+            f"📦 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n\n"
+            f"📋 *Productos:*\n{resumen}\n\n"
+            f"📦 ¿Cuántos bultos son en total?",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Agregar más productos desde el resumen
+    if data == "resumen_agregar_mas":
+        info["paso"] = "eligiendo_categoria"
+        productos = cargar_productos()
+        categorias = list(productos.keys())
+        keyboard = [[InlineKeyboardButton(f"🏷️ {cat}", callback_data=f"cat_{cat}")] for cat in categorias]
+        keyboard.append([InlineKeyboardButton("✏️ Carga manual", callback_data="carga_manual")])
+        keyboard.append([InlineKeyboardButton(f"✅ Terminar y enviar ({len(info['productos_lista'])} productos)", callback_data="terminar_productos")])
+        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
 
         lines = []
         for j, p in enumerate(info["productos_lista"]):
@@ -605,9 +697,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await query.edit_message_text(
             f"📦 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n\n"
-            f"📋 *Productos:*\n{resumen}\n\n"
-            f"📦 ¿Cuántos bultos son en total?",
-            parse_mode="Markdown"
+            f"📋 *Productos actuales:*\n{resumen}\n\n"
+            f"Elegí una categoría para agregar más:",
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
         return
 
@@ -856,6 +948,39 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"Seguí agregando o terminá:",
             reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
+        return
+
+    # Editando cantidad desde resumen editable
+    if paso == "editando_cantidad":
+        idx = info.get("editando_idx", 0)
+        if idx < len(info["cantidades_lista"]):
+            prod = info["productos_lista"][idx]
+            info["cantidades_lista"][idx] = texto
+            info["paso"] = "resumen_editable"
+
+            # Recrear resumen editable
+            lines = []
+            keyboard = []
+            for j, p in enumerate(info["productos_lista"]):
+                cant = info["cantidades_lista"][j]
+                lines.append(f"  {j + 1}\\. *{esc(p)}*: {cant}")
+                keyboard.append([
+                    InlineKeyboardButton(f"✏️ {p[:20]}: {cant}", callback_data=f"edit_prod_{j}"),
+                    InlineKeyboardButton("🗑️", callback_data=f"del_prod_{j}"),
+                ])
+            resumen = "\n".join(lines)
+            keyboard.append([InlineKeyboardButton("➕ Agregar más productos", callback_data="resumen_agregar_mas")])
+            keyboard.append([InlineKeyboardButton(f"✅ Confirmar productos ({len(info['productos_lista'])})", callback_data="resumen_ok")])
+            keyboard.append([InlineKeyboardButton("❌ Cancelar envío", callback_data="cancelar")])
+
+            await update.message.reply_text(
+                f"✅ *{esc(prod)}* actualizado a *{texto}*\n\n"
+                f"📋 *Revisá los productos:*\n\n"
+                f"📦 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n\n"
+                f"{resumen}\n\n"
+                f"_Tocá un producto para editar o eliminarlo._",
+                reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+            )
         return
 
     # Cantidad del producto → agregar y volver a categorías
