@@ -11,8 +11,11 @@ import re
 import json
 import logging
 import asyncio
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from difflib import SequenceMatcher
+
+# Timezone Argentina (UTC-3)
+TZ_AR = timezone(timedelta(hours=-3))
 
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup,
@@ -57,7 +60,7 @@ SHEETS_CACHE_TTL = 300
 def get_sheets_client():
     import gspread
     from google.oauth2.service_account import Credentials
-    now = datetime.now().timestamp()
+    now = datetime.now(TZ_AR).timestamp()
     if _sheets_cache["gc"] and (now - _sheets_cache["ts"]) < SHEETS_CACHE_TTL:
         return _sheets_cache["gc"], _sheets_cache["sh"]
     creds_json = GOOGLE_CREDS
@@ -74,19 +77,20 @@ def get_sheets_client():
         log.error(f"❌ Error conectando a Sheets: {e}")
         return None, None
 
-def cargar_productos() -> dict:
+def cargar_productos() -> tuple:
     """
     Lee la pestaña 'Productos Envío' del Sheet.
-    Retorna dict: {categoría: [producto1, producto2, ...]}
+    Retorna (dict categorías, dict unidades):
+      - categorías: {categoría: [producto1, producto2, ...]}
+      - unidades:   {producto: "u"|"kg"|"lt"|"g"|...}
     """
     try:
         gc, sh = get_sheets_client()
         if not sh:
-            return {}
+            return {}, {}
         try:
             ws = sh.worksheet("Productos Envío")
         except:
-            # Crear pestaña con los productos iniciales si no existe
             ws = sh.add_worksheet("Productos Envío", rows=200, cols=3)
             ws.append_row(["Categoría", "Producto", "Unidad"])
             _crear_productos_iniciales(ws)
@@ -99,20 +103,23 @@ def cargar_productos() -> dict:
                 break
 
         productos = {}
+        unidades = {}
         for row in vals[header_idx + 1:]:
             if not any(row):
                 continue
             cat = row[0].strip() if len(row) > 0 else ""
             prod = row[1].strip() if len(row) > 1 else ""
+            unidad = row[2].strip() if len(row) > 2 else "u"
             if cat and prod:
                 if cat not in productos:
                     productos[cat] = []
                 productos[cat].append(prod)
+                unidades[prod] = unidad or "u"
         log.info(f"✅ Productos cargados: {sum(len(v) for v in productos.values())} en {len(productos)} categorías")
-        return productos
+        return productos, unidades
     except Exception as e:
         log.error(f"❌ Error cargando productos: {e}")
-        return {}
+        return {}, {}
 
 
 def _crear_productos_iniciales(ws):
@@ -212,16 +219,17 @@ def guardar_envio(datos: dict):
         try:
             ws = sh.worksheet("Envíos")
         except:
-            ws = sh.add_worksheet("Envíos", rows=2000, cols=16)
+            ws = sh.add_worksheet("Envíos", rows=2000, cols=17)
             ws.append_row([
                 "Fecha", "Hora", "Origen", "Destino", "Responsable envío",
-                "Transporte", "Productos", "Cantidades", "Tipos",
+                "Transporte", "Productos", "Cantidades", "Unidades", "Tipos",
                 "Bultos", "Estado", "Responsable recepción", "Fecha recepción",
                 "Recibido OK", "Diferencias", "Observaciones"
             ])
 
         productos_str = "\n".join(datos.get("productos_lista", []))
         cantidades_str = "\n".join(datos.get("cantidades_lista", []))
+        unidades_str = "\n".join(datos.get("unidades_lista", []))
         tipos_str = "\n".join(datos.get("tipos_lista", []))
         bultos_str = datos.get("bultos_total", "")
 
@@ -234,6 +242,7 @@ def guardar_envio(datos: dict):
             datos.get("transporte", ""),
             productos_str,
             cantidades_str,
+            unidades_str,
             tipos_str,
             bultos_str,
             "📦 Enviado",
@@ -310,7 +319,7 @@ def marcar_recibido(fila: int, responsable: str, recibido_ok: bool, diferencias:
             except:
                 return None
 
-        ahora = datetime.now()
+        ahora = datetime.now(TZ_AR)
         estado = "✅ Recibido" if recibido_ok else "⚠️ Con diferencias"
 
         col_estado = col_idx("Estado")
@@ -348,6 +357,14 @@ def local_corto(local: str) -> str:
     return local.split(" - ")[-1].strip() if " - " in local else local
 
 
+def _fmt_prod_line(info, j):
+    """Formatea una línea de producto con cantidad y unidad."""
+    p = info["productos_lista"][j]
+    c = info["cantidades_lista"][j]
+    u = info["unidades_lista"][j] if j < len(info.get("unidades_lista", [])) else "u"
+    return f"{p}: {c} {u}"
+
+
 def _normalizar(texto: str) -> str:
     """Normaliza texto para comparación: minúsculas, sin acentos básicos."""
     t = texto.lower().strip()
@@ -357,10 +374,10 @@ def _normalizar(texto: str) -> str:
     return t
 
 
-def _buscar_producto_similar(nombre: str, productos_dict: dict, umbral: float = 0.6) -> tuple:
+def _buscar_producto_similar(nombre: str, productos_dict: dict, unidades_dict: dict = None, umbral: float = 0.6) -> tuple:
     """
     Busca el producto más similar en el catálogo.
-    Retorna (nombre_encontrado, categoría) o (None, None) si no hay match.
+    Retorna (nombre_encontrado, categoría, unidad) o (None, None, None) si no hay match.
     """
     nombre_norm = _normalizar(nombre)
     mejor_score = 0
@@ -372,7 +389,7 @@ def _buscar_producto_similar(nombre: str, productos_dict: dict, umbral: float = 
             prod_norm = _normalizar(prod)
             # Match exacto normalizado
             if nombre_norm == prod_norm:
-                return prod, cat
+                return prod, cat, (unidades_dict or {}).get(prod, "u")
             # Uno contiene al otro
             if nombre_norm in prod_norm or prod_norm in nombre_norm:
                 score = 0.85
@@ -384,8 +401,9 @@ def _buscar_producto_similar(nombre: str, productos_dict: dict, umbral: float = 
                 mejor_cat = cat
 
     if mejor_score >= umbral:
-        return mejor_prod, mejor_cat
-    return None, None
+        unidad = (unidades_dict or {}).get(mejor_prod, "u")
+        return mejor_prod, mejor_cat, unidad
+    return None, None, None
 
 
 def _parsear_carga_manual(texto: str) -> list:
@@ -426,30 +444,40 @@ def _parsear_carga_manual(texto: str) -> list:
     return items
 
 
-async def _mostrar_resumen_editable(query, info):
-    """Muestra el resumen editable con botones para editar/eliminar cada producto."""
+async def _mostrar_resumen_editable(query_or_msg, info, is_message=False):
+    """Muestra el resumen editable con botones para editar/eliminar cada producto y datos del envío."""
     lines = []
     keyboard = []
     for j, p in enumerate(info["productos_lista"]):
         cant = info["cantidades_lista"][j]
-        lines.append(f"  {j + 1}\\. *{esc(p)}*: {cant}")
+        u = info["unidades_lista"][j] if j < len(info.get("unidades_lista", [])) else "u"
+        lines.append(f"  {j + 1}\\. *{esc(p)}*: {cant} {u}")
         keyboard.append([
-            InlineKeyboardButton(f"✏️ {p[:20]}: {cant}", callback_data=f"edit_prod_{j}"),
+            InlineKeyboardButton(f"✏️ {p[:18]}: {cant} {u}", callback_data=f"edit_prod_{j}"),
             InlineKeyboardButton("🗑️", callback_data=f"del_prod_{j}"),
         ])
     resumen = "\n".join(lines)
 
-    keyboard.append([InlineKeyboardButton("➕ Agregar más productos", callback_data="resumen_agregar_mas")])
-    keyboard.append([InlineKeyboardButton(f"✅ Confirmar productos ({len(info['productos_lista'])})", callback_data="resumen_ok")])
-    keyboard.append([InlineKeyboardButton("❌ Cancelar envío", callback_data="cancelar")])
+    keyboard.append([
+        InlineKeyboardButton(f"📍 Destino: {local_corto(info['destino'])}", callback_data="edit_destino"),
+        InlineKeyboardButton(f"👤 {info.get('responsable','?')[:12]}", callback_data="edit_responsable"),
+    ])
+    keyboard.append([InlineKeyboardButton("➕ Agregar más", callback_data="resumen_agregar_mas")])
+    keyboard.append([InlineKeyboardButton(f"✅ Confirmar ({len(info['productos_lista'])})", callback_data="resumen_ok")])
+    keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
 
-    await query.edit_message_text(
-        f"📋 *Revisá los productos antes de continuar:*\n\n"
-        f"📦 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n\n"
+    text = (
+        f"📋 *Revisá antes de continuar:*\n\n"
+        f"📍 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n"
+        f"👤 {esc(info.get('responsable', ''))}\n\n"
         f"{resumen}\n\n"
-        f"_Tocá un producto para editar la cantidad o eliminarlo._",
-        reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+        f"_Tocá para editar cualquier dato._"
     )
+
+    if is_message:
+        await query_or_msg.reply_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+    else:
+        await query_or_msg.edit_message_text(text, reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
 
 
 def agregar_producto_nuevo(nombre: str, categoria: str = "Varios", unidad: str = "u"):
@@ -492,7 +520,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── MENÚ PRINCIPAL ─────────────────────────────────────────────────
     if data == "menu_envio":
-        estado_usuario[chat_id] = {"paso": "eligiendo_origen", "productos_lista": [], "cantidades_lista": [], "tipos_lista": []}
+        estado_usuario[chat_id] = {"paso": "eligiendo_origen", "productos_lista": [], "cantidades_lista": [], "tipos_lista": [], "unidades_lista": []}
         keyboard = [[InlineKeyboardButton(local_corto(l), callback_data=f"origen_{i}")] for i, l in enumerate(LOCALES)]
         keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
         await query.edit_message_text("📍 *¿De dónde sale el envío?*", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
@@ -539,7 +567,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("cat_"):
         cat = data[4:]
         info["categoria_actual"] = cat
-        productos = cargar_productos()
+        productos, unidades = cargar_productos()
+        info["_unidades_cache"] = unidades
         prods = productos.get(cat, [])
         keyboard = []
         for i in range(0, len(prods), 2):
@@ -552,9 +581,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         resumen = ""
         if info["productos_lista"]:
-            lines = []
-            for j, p in enumerate(info["productos_lista"]):
-                lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
+            lines = [f"  · {_fmt_prod_line(info, j)}" for j in range(len(info["productos_lista"]))]
             resumen = "\n\n📋 *Agregados:*\n" + "\n".join(lines)
 
         await query.edit_message_text(
@@ -566,7 +593,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "volver_categorias":
-        productos = cargar_productos()
+        productos, _ = cargar_productos()
         categorias = list(productos.keys())
         keyboard = [[InlineKeyboardButton(f"🏷️ {cat}", callback_data=f"cat_{cat}")] for cat in categorias]
         keyboard.append([InlineKeyboardButton("✏️ Carga manual", callback_data="carga_manual")])
@@ -576,9 +603,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         resumen = ""
         if info["productos_lista"]:
-            lines = []
-            for j, p in enumerate(info["productos_lista"]):
-                lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
+            lines = [f"  · {_fmt_prod_line(info, j)}" for j in range(len(info["productos_lista"]))]
             resumen = "\n\n📋 *Agregados:*\n" + "\n".join(lines)
 
         await query.edit_message_text(
@@ -604,15 +629,18 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data.startswith("prod_"):
         idx = int(data.split("_")[1])
-        productos = cargar_productos()
+        productos, unidades = cargar_productos()
         cat = info.get("categoria_actual", "")
         prods = productos.get(cat, [])
         if idx < len(prods):
             info["producto_actual"] = prods[idx]
+            info["unidad_actual"] = unidades.get(prods[idx], "u")
             info["paso"] = "esperando_cantidad"
+            u = info["unidad_actual"]
+            hint = {"u": "unidades", "kg": "kg", "g": "gramos", "lt": "litros"}.get(u, u)
             await query.edit_message_text(
-                f"📦 *{info['producto_actual']}*\n\n"
-                f"Escribí la cantidad (número):",
+                f"📦 *{info['producto_actual']}*  ({hint})\n\n"
+                f"Escribí la cantidad:",
                 parse_mode="Markdown"
             )
         return
@@ -626,19 +654,128 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await _mostrar_resumen_editable(query, info)
         return
 
-    # Editar cantidad de un producto en el resumen
+    # Editar un producto en el resumen — mostrar opciones
     if data.startswith("edit_prod_"):
         idx = int(data.split("_")[2])
         if idx < len(info.get("productos_lista", [])):
             info["editando_idx"] = idx
-            info["paso"] = "editando_cantidad"
             prod = info["productos_lista"][idx]
-            cant_actual = info["cantidades_lista"][idx]
+            cant = info["cantidades_lista"][idx]
+            u = info["unidades_lista"][idx] if idx < len(info.get("unidades_lista", [])) else "u"
+            keyboard = [
+                [InlineKeyboardButton(f"🔢 Cantidad ({cant})", callback_data=f"editcant_{idx}")],
+                [InlineKeyboardButton(f"📏 Unidad ({u})", callback_data=f"editunit_{idx}")],
+                [InlineKeyboardButton(f"📦 Producto ({prod[:25]})", callback_data=f"editname_{idx}")],
+                [InlineKeyboardButton("⬅️ Volver al resumen", callback_data="volver_resumen")],
+            ]
             await query.edit_message_text(
-                f"✏️ *{prod}* — Cantidad actual: *{cant_actual}*\n\n"
-                f"Escribí la nueva cantidad:",
-                parse_mode="Markdown"
+                f"✏️ *Editando:* {esc(prod)}: {cant} {u}\n\n"
+                f"¿Qué querés corregir?",
+                reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
             )
+        return
+
+    # Sub-edición: cantidad
+    if data.startswith("editcant_"):
+        idx = int(data.split("_")[1])
+        info["editando_idx"] = idx
+        info["paso"] = "editando_cantidad"
+        prod = info["productos_lista"][idx]
+        u = info["unidades_lista"][idx] if idx < len(info.get("unidades_lista", [])) else "u"
+        await query.edit_message_text(
+            f"🔢 *{esc(prod)}* — Actual: *{info['cantidades_lista'][idx]} {u}*\n\n"
+            f"Escribí la nueva cantidad:",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Sub-edición: unidad
+    if data.startswith("editunit_"):
+        idx = int(data.split("_")[1])
+        info["editando_idx"] = idx
+        keyboard = [
+            [
+                InlineKeyboardButton("u (unidades)", callback_data=f"setunit_{idx}_u"),
+                InlineKeyboardButton("kg", callback_data=f"setunit_{idx}_kg"),
+            ],
+            [
+                InlineKeyboardButton("g (gramos)", callback_data=f"setunit_{idx}_g"),
+                InlineKeyboardButton("lt (litros)", callback_data=f"setunit_{idx}_lt"),
+            ],
+            [InlineKeyboardButton("⬅️ Volver", callback_data="volver_resumen")],
+        ]
+        prod = info["productos_lista"][idx]
+        u_actual = info["unidades_lista"][idx] if idx < len(info.get("unidades_lista", [])) else "u"
+        await query.edit_message_text(
+            f"📏 *{esc(prod)}* — Unidad actual: *{u_actual}*\n\nElegí la unidad correcta:",
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+        )
+        return
+
+    # Setear unidad
+    if data.startswith("setunit_"):
+        parts = data.split("_")
+        idx = int(parts[1])
+        new_unit = parts[2]
+        if idx < len(info.get("unidades_lista", [])):
+            info["unidades_lista"][idx] = new_unit
+        await query.answer(f"Unidad cambiada a {new_unit}")
+        info["paso"] = "resumen_editable"
+        await _mostrar_resumen_editable(query, info)
+        return
+
+    # Sub-edición: nombre del producto
+    if data.startswith("editname_"):
+        idx = int(data.split("_")[1])
+        info["editando_idx"] = idx
+        info["paso"] = "editando_nombre_prod"
+        prod = info["productos_lista"][idx]
+        await query.edit_message_text(
+            f"📦 Producto actual: *{esc(prod)}*\n\n"
+            f"Escribí el nombre correcto:",
+            parse_mode="Markdown"
+        )
+        return
+
+    # Volver al resumen desde sub-edición
+    if data == "volver_resumen":
+        info["paso"] = "resumen_editable"
+        await _mostrar_resumen_editable(query, info)
+        return
+
+    # Editar destino
+    if data == "edit_destino":
+        info["paso"] = "editando_destino"
+        origen_idx = None
+        for i, l in enumerate(LOCALES):
+            if l == info.get("origen"):
+                origen_idx = i
+                break
+        keyboard = [[InlineKeyboardButton(local_corto(l), callback_data=f"newdest_{i}")] for i, l in enumerate(LOCALES) if i != origen_idx]
+        keyboard.append([InlineKeyboardButton("⬅️ Volver", callback_data="volver_resumen")])
+        await query.edit_message_text(
+            f"📍 Destino actual: *{local_corto(info['destino'])}*\n\n¿Cuál es el destino correcto?",
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+        )
+        return
+
+    # Setear nuevo destino
+    if data.startswith("newdest_"):
+        idx = int(data.split("_")[1])
+        info["destino"] = LOCALES[idx]
+        await query.answer(f"Destino: {local_corto(LOCALES[idx])}")
+        info["paso"] = "resumen_editable"
+        await _mostrar_resumen_editable(query, info)
+        return
+
+    # Editar responsable
+    if data == "edit_responsable":
+        info["paso"] = "editando_responsable"
+        await query.edit_message_text(
+            f"👤 Responsable actual: *{esc(info.get('responsable', ''))}*\n\n"
+            f"Escribí el nombre correcto:",
+            parse_mode="Markdown"
+        )
         return
 
     # Eliminar un producto del resumen
@@ -648,11 +785,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             eliminado = info["productos_lista"].pop(idx)
             info["cantidades_lista"].pop(idx)
             info["tipos_lista"].pop(idx)
+            if idx < len(info.get("unidades_lista", [])):
+                info["unidades_lista"].pop(idx)
             await query.answer(f"🗑️ {eliminado} eliminado")
             if not info["productos_lista"]:
                 # Sin productos, volver a categorías
                 info["paso"] = "eligiendo_categoria"
-                productos = cargar_productos()
+                productos, _ = cargar_productos()
                 categorias = list(productos.keys())
                 keyboard = [[InlineKeyboardButton(f"🏷️ {cat}", callback_data=f"cat_{cat}")] for cat in categorias]
                 keyboard.append([InlineKeyboardButton("✏️ Carga manual", callback_data="carga_manual")])
@@ -668,9 +807,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Confirmar resumen → preguntar bultos
     if data == "resumen_ok":
         info["paso"] = "esperando_bultos_total"
-        lines = []
-        for j, p in enumerate(info["productos_lista"]):
-            lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
+        lines = [f"  · {_fmt_prod_line(info, j)}" for j in range(len(info["productos_lista"]))]
         resumen = "\n".join(lines)
         await query.edit_message_text(
             f"📦 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n\n"
@@ -683,16 +820,14 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # Agregar más productos desde el resumen
     if data == "resumen_agregar_mas":
         info["paso"] = "eligiendo_categoria"
-        productos = cargar_productos()
+        productos, _ = cargar_productos()
         categorias = list(productos.keys())
         keyboard = [[InlineKeyboardButton(f"🏷️ {cat}", callback_data=f"cat_{cat}")] for cat in categorias]
         keyboard.append([InlineKeyboardButton("✏️ Carga manual", callback_data="carga_manual")])
         keyboard.append([InlineKeyboardButton(f"✅ Terminar y enviar ({len(info['productos_lista'])} productos)", callback_data="terminar_productos")])
         keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
 
-        lines = []
-        for j, p in enumerate(info["productos_lista"]):
-            lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
+        lines = [f"  · {_fmt_prod_line(info, j)}" for j in range(len(info["productos_lista"]))]
         resumen = "\n".join(lines)
 
         await query.edit_message_text(
@@ -708,9 +843,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info["transporte"] = TRANSPORTES[idx]
         info["paso"] = "confirmando_envio"
 
-        lines = []
-        for j, p in enumerate(info["productos_lista"]):
-            lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
+        lines = [f"  · {_fmt_prod_line(info, j)}" for j in range(len(info["productos_lista"]))]
         resumen = "\n".join(lines)
 
         keyboard = [
@@ -729,15 +862,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     if data == "confirmar_envio":
-        ahora = datetime.now()
+        ahora = datetime.now(TZ_AR)
         info["fecha"] = ahora.strftime("%d/%m/%Y")
         info["hora"] = ahora.strftime("%H:%M")
         guardar_envio(info)
 
         # Notificar
-        lines = []
-        for j, p in enumerate(info["productos_lista"]):
-            lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
+        lines = [f"  · {_fmt_prod_line(info, j)}" for j in range(len(info["productos_lista"]))]
         resumen = "\n".join(lines)
 
         msg_notif = (
@@ -878,7 +1009,7 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if paso == "esperando_nombre":
         info["responsable"] = texto
         info["paso"] = "eligiendo_categoria"
-        productos = cargar_productos()
+        productos, _ = cargar_productos()
         categorias = list(productos.keys())
         keyboard = [[InlineKeyboardButton(f"🏷️ {cat}", callback_data=f"cat_{cat}")] for cat in categorias]
         keyboard.append([InlineKeyboardButton("✏️ Carga manual", callback_data="carga_manual")])
@@ -900,28 +1031,28 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
             )
             return
 
-        productos = cargar_productos()
+        productos, unidades = cargar_productos()
         resumen_lines = []
         nuevos = []
         matcheados = []
 
         for cantidad, nombre in items:
-            prod_match, cat_match = _buscar_producto_similar(nombre, productos)
+            prod_match, cat_match, unit_match = _buscar_producto_similar(nombre, productos, unidades)
             if prod_match:
                 info["productos_lista"].append(prod_match)
                 info["cantidades_lista"].append(cantidad)
-                # Auto-assign type from matched category
+                info["unidades_lista"].append(unit_match or "u")
                 tipo = cat_match if cat_match else "Producto Terminado"
                 info["tipos_lista"].append(tipo)
-                matcheados.append(f"  ✅ {prod_match}: {cantidad}")
+                matcheados.append(f"  ✅ {prod_match}: {cantidad} {unit_match or 'u'}")
             else:
-                # Producto nuevo → agregar al catálogo (default to "Producto Terminado")
                 nombre_cap = nombre.strip().capitalize()
                 agregar_producto_nuevo(nombre_cap)
                 info["productos_lista"].append(nombre_cap)
                 info["cantidades_lista"].append(cantidad)
+                info["unidades_lista"].append("u")
                 info["tipos_lista"].append("Producto Terminado")
-                nuevos.append(f"  🆕 {nombre_cap}: {cantidad}")
+                nuevos.append(f"  🆕 {nombre_cap}: {cantidad} u")
 
         if matcheados:
             resumen_lines.append("*Productos encontrados:*\n" + "\n".join(matcheados))
@@ -936,9 +1067,7 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton(f"✅ Terminar y enviar ({len(info['productos_lista'])} productos)", callback_data="terminar_productos")])
         keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
 
-        all_lines = []
-        for j, p in enumerate(info["productos_lista"]):
-            all_lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
+        all_lines = [f"  · {_fmt_prod_line(info, j)}" for j in range(len(info["productos_lista"]))]
         resumen_total = "\n".join(all_lines)
 
         await update.message.reply_text(
@@ -955,39 +1084,39 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         idx = info.get("editando_idx", 0)
         if idx < len(info["cantidades_lista"]):
             prod = info["productos_lista"][idx]
+            u = info["unidades_lista"][idx] if idx < len(info.get("unidades_lista", [])) else "u"
             info["cantidades_lista"][idx] = texto
             info["paso"] = "resumen_editable"
+            await update.message.reply_text(f"✅ *{esc(prod)}* → {texto} {u}")
+            await _mostrar_resumen_editable(update.message, info, is_message=True)
+        return
 
-            # Recrear resumen editable
-            lines = []
-            keyboard = []
-            for j, p in enumerate(info["productos_lista"]):
-                cant = info["cantidades_lista"][j]
-                lines.append(f"  {j + 1}\\. *{esc(p)}*: {cant}")
-                keyboard.append([
-                    InlineKeyboardButton(f"✏️ {p[:20]}: {cant}", callback_data=f"edit_prod_{j}"),
-                    InlineKeyboardButton("🗑️", callback_data=f"del_prod_{j}"),
-                ])
-            resumen = "\n".join(lines)
-            keyboard.append([InlineKeyboardButton("➕ Agregar más productos", callback_data="resumen_agregar_mas")])
-            keyboard.append([InlineKeyboardButton(f"✅ Confirmar productos ({len(info['productos_lista'])})", callback_data="resumen_ok")])
-            keyboard.append([InlineKeyboardButton("❌ Cancelar envío", callback_data="cancelar")])
+    # Editando nombre del producto
+    if paso == "editando_nombre_prod":
+        idx = info.get("editando_idx", 0)
+        if idx < len(info["productos_lista"]):
+            old = info["productos_lista"][idx]
+            info["productos_lista"][idx] = texto.strip()
+            info["paso"] = "resumen_editable"
+            await update.message.reply_text(f"✅ *{esc(old)}* → *{esc(texto.strip())}*", parse_mode="Markdown")
+            await _mostrar_resumen_editable(update.message, info, is_message=True)
+        return
 
-            await update.message.reply_text(
-                f"✅ *{esc(prod)}* actualizado a *{texto}*\n\n"
-                f"📋 *Revisá los productos:*\n\n"
-                f"📦 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n\n"
-                f"{resumen}\n\n"
-                f"_Tocá un producto para editar o eliminarlo._",
-                reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
-            )
+    # Editando responsable
+    if paso == "editando_responsable":
+        info["responsable"] = texto.strip()
+        info["paso"] = "resumen_editable"
+        await update.message.reply_text(f"✅ Responsable: *{esc(texto.strip())}*", parse_mode="Markdown")
+        await _mostrar_resumen_editable(update.message, info, is_message=True)
         return
 
     # Cantidad del producto → agregar y volver a categorías
     if paso == "esperando_cantidad":
         prod = info.get("producto_actual", "")
+        unidad = info.get("unidad_actual", "u")
         info["productos_lista"].append(prod)
         info["cantidades_lista"].append(texto)
+        info["unidades_lista"].append(unidad)
         # Auto-assign type from category
         cat = info.get("categoria_actual", "Varios")
         tipo = cat if cat != "Varios" else "Producto Terminado"
@@ -995,20 +1124,18 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info["paso"] = "eligiendo_categoria"
 
         # Volver a categorías
-        productos = cargar_productos()
+        productos, _ = cargar_productos()
         categorias = list(productos.keys())
         keyboard = [[InlineKeyboardButton(f"🏷️ {cat}", callback_data=f"cat_{cat}")] for cat in categorias]
         keyboard.append([InlineKeyboardButton("✏️ Carga manual", callback_data="carga_manual")])
         keyboard.append([InlineKeyboardButton(f"✅ Terminar y enviar ({len(info['productos_lista'])} productos)", callback_data="terminar_productos")])
         keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
 
-        lines = []
-        for j, p in enumerate(info["productos_lista"]):
-            lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
+        lines = [f"  · {_fmt_prod_line(info, j)}" for j in range(len(info["productos_lista"]))]
         resumen = "\n".join(lines)
 
         await update.message.reply_text(
-            f"✅ Agregado: *{prod}* — {texto}\n\n"
+            f"✅ Agregado: *{prod}* — {texto} {unidad}\n\n"
             f"📋 *Productos:*\n{resumen}\n\n"
             f"Elegí otra categoría o terminá:",
             reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
