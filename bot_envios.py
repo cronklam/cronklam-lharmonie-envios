@@ -4,7 +4,6 @@ Bot de Telegram — Envíos entre locales Lharmonie
 =================================================
 Registra envíos de mercadería entre el centro de producción y los locales.
 Catálogo de productos editable desde Google Sheets.
-Soporta productos Congelados y Terminados.
 """
 import os
 import io
@@ -14,6 +13,7 @@ import logging
 import asyncio
 from datetime import datetime
 from difflib import SequenceMatcher
+
 from telegram import (
     Update, InlineKeyboardButton, InlineKeyboardMarkup,
     ReplyKeyboardMarkup, ReplyKeyboardRemove
@@ -34,6 +34,7 @@ LOCALES = [
     "Lharmonie 4 - Zabala 1925",
     "Lharmonie 5 - Libertador 3118",
 ]
+
 TRANSPORTES = ["🚗 Ezequiel (Mister)", "🚕 Uber"]
 
 # IDs para notificaciones (Martín + Iaras)
@@ -77,7 +78,6 @@ def cargar_productos() -> dict:
     """
     Lee la pestaña 'Productos Envío' del Sheet.
     Retorna dict: {categoría: [producto1, producto2, ...]}
-    Categorías ahora incluyen: Congelado, Producto Terminado, Pastelería, Varios
     """
     try:
         gc, sh = get_sheets_client()
@@ -86,6 +86,7 @@ def cargar_productos() -> dict:
         try:
             ws = sh.worksheet("Productos Envío")
         except:
+            # Crear pestaña con los productos iniciales si no existe
             ws = sh.add_worksheet("Productos Envío", rows=200, cols=3)
             ws.append_row(["Categoría", "Producto", "Unidad"])
             _crear_productos_iniciales(ws)
@@ -107,53 +108,51 @@ def cargar_productos() -> dict:
                 if cat not in productos:
                     productos[cat] = []
                 productos[cat].append(prod)
-
         log.info(f"✅ Productos cargados: {sum(len(v) for v in productos.values())} en {len(productos)} categorías")
         return productos
     except Exception as e:
         log.error(f"❌ Error cargando productos: {e}")
         return {}
 
+
 def _crear_productos_iniciales(ws):
-    """Crea el catálogo inicial de productos con categorías Congelado y Producto Terminado."""
+    """Crea el catálogo inicial de productos."""
     productos = [
-        # Congelado (productos que se pueden enviar congelados)
-        ("Congelado", "Croissant", "u"),
-        ("Congelado", "Medialunas", "u"),
-        ("Congelado", "Pain au choco", "u"),
-        ("Congelado", "Bavka choco", "u"),
-        ("Congelado", "Bavka pistacho", "u"),
-        ("Congelado", "Brioche pastelera", "u"),
-        ("Congelado", "Pan brioche", "u"),
-        ("Congelado", "Pan brioche cuadrado", "u"),
-        ("Congelado", "Roll canela", "u"),
-        ("Congelado", "Roll frambuesa", "u"),
-
-        # Producto Terminado (productos listos para vender)
-        ("Producto Terminado", "Alfajor de chocolate", "u"),
-        ("Producto Terminado", "Alfajor de nuez", "u"),
-        ("Producto Terminado", "Alfajor de pistacho", "u"),
-        ("Producto Terminado", "Barritas proteína", "u"),
-        ("Producto Terminado", "Brownie", "u"),
-        ("Producto Terminado", "Budín", "u"),
-        ("Producto Terminado", "Cookie chocolate", "u"),
-        ("Producto Terminado", "Cookie de maní", "u"),
-        ("Producto Terminado", "Cookie melu", "u"),
-        ("Producto Terminado", "Cookie nuez", "u"),
-        ("Producto Terminado", "Cookie red velvet", "u"),
-        ("Producto Terminado", "Cuadrado de coco", "u"),
-        ("Producto Terminado", "Muffin", "u"),
-        ("Producto Terminado", "Porción de dátiles", "u"),
-        ("Producto Terminado", "Porción de torta", "u"),
-        ("Producto Terminado", "Tarteleta", "u"),
-        ("Producto Terminado", "Chipa", "u"),
-        ("Producto Terminado", "Chipa prensado", "u"),
-        ("Producto Terminado", "Palitos de queso", "u"),
-        ("Producto Terminado", "Palmeras", "u"),
-        ("Producto Terminado", "Pan masa madre con semillas", "u"),
-        ("Producto Terminado", "Pan suisse", "u"),
-        ("Producto Terminado", "Tarta del día", "u"),
-
+        # Pastelería
+        ("Pastelería", "Alfajor de chocolate", "u"),
+        ("Pastelería", "Alfajor de nuez", "u"),
+        ("Pastelería", "Alfajor de pistacho", "u"),
+        ("Pastelería", "Barritas proteína", "u"),
+        ("Pastelería", "Brownie", "u"),
+        ("Pastelería", "Budín", "u"),
+        ("Pastelería", "Cookie chocolate", "u"),
+        ("Pastelería", "Cookie de maní", "u"),
+        ("Pastelería", "Cookie melu", "u"),
+        ("Pastelería", "Cookie nuez", "u"),
+        ("Pastelería", "Cookie red velvet", "u"),
+        ("Pastelería", "Cuadrado de coco", "u"),
+        ("Pastelería", "Muffin", "u"),
+        ("Pastelería", "Porción de dátiles", "u"),
+        ("Pastelería", "Porción de torta", "u"),
+        ("Pastelería", "Tarteleta", "u"),
+        # Elaborados
+        ("Elaborados", "Bavka choco", "u"),
+        ("Elaborados", "Bavka pistacho", "u"),
+        ("Elaborados", "Brioche pastelera", "u"),
+        ("Elaborados", "Chipa", "u"),
+        ("Elaborados", "Chipa prensado", "u"),
+        ("Elaborados", "Croissant", "u"),
+        ("Elaborados", "Medialunas", "u"),
+        ("Elaborados", "Pain au choco", "u"),
+        ("Elaborados", "Palitos de queso", "u"),
+        ("Elaborados", "Palmeras", "u"),
+        ("Elaborados", "Pan brioche", "u"),
+        ("Elaborados", "Pan brioche cuadrado", "u"),
+        ("Elaborados", "Pan masa madre con semillas", "u"),
+        ("Elaborados", "Pan suisse", "u"),
+        ("Elaborados", "Roll canela", "u"),
+        ("Elaborados", "Roll frambuesa", "u"),
+        ("Elaborados", "Tarta del día", "u"),
         # Varios
         ("Varios", "Aceite de girasol", "u"),
         ("Varios", "Aceite de oliva cocina", "u"),
@@ -205,7 +204,7 @@ def _crear_productos_iniciales(ws):
 
 
 def guardar_envio(datos: dict):
-    """Guarda un envío en la pestaña 'Envíos' del Sheet con columna Tipo."""
+    """Guarda un envío en la pestaña 'Envíos' del Sheet."""
     try:
         gc, sh = get_sheets_client()
         if not sh:
@@ -216,13 +215,14 @@ def guardar_envio(datos: dict):
             ws = sh.add_worksheet("Envíos", rows=2000, cols=16)
             ws.append_row([
                 "Fecha", "Hora", "Origen", "Destino", "Responsable envío",
-                "Transporte", "Productos", "Tipo", "Cantidades", "Bultos", "Estado",
-                "Responsable recepción", "Fecha recepción", "Recibido OK",
-                "Diferencias", "Observaciones"
+                "Transporte", "Productos", "Cantidades", "Tipos",
+                "Bultos", "Estado", "Responsable recepción", "Fecha recepción",
+                "Recibido OK", "Diferencias", "Observaciones"
             ])
+
         productos_str = "\n".join(datos.get("productos_lista", []))
-        tipos_str = "\n".join(datos.get("tipos_lista", []))
         cantidades_str = "\n".join(datos.get("cantidades_lista", []))
+        tipos_str = "\n".join(datos.get("tipos_lista", []))
         bultos_str = datos.get("bultos_total", "")
 
         ws.append_row([
@@ -233,8 +233,8 @@ def guardar_envio(datos: dict):
             datos.get("responsable", ""),
             datos.get("transporte", ""),
             productos_str,
-            tipos_str,
             cantidades_str,
+            tipos_str,
             bultos_str,
             "📦 Enviado",
             "",  # responsable recepción
@@ -286,7 +286,6 @@ def obtener_envios_pendientes(local_destino: str) -> list:
                     "responsable": gcol(row, "Responsable envío"),
                     "transporte": gcol(row, "Transporte"),
                     "productos": gcol(row, "Productos"),
-                    "tipos": gcol(row, "Tipo"),
                     "cantidades": gcol(row, "Cantidades"),
                     "bultos": gcol(row, "Bultos"),
                 })
@@ -306,23 +305,30 @@ def marcar_recibido(fila: int, responsable: str, recibido_ok: bool, diferencias:
         headers = ws.row_values(1)
 
         def col_idx(name):
-            try: return headers.index(name) + 1
-            except: return None
+            try:
+                return headers.index(name) + 1
+            except:
+                return None
 
         ahora = datetime.now()
         estado = "✅ Recibido" if recibido_ok else "⚠️ Con diferencias"
 
         col_estado = col_idx("Estado")
-        col_resp   = col_idx("Responsable recepción")
-        col_fecha  = col_idx("Fecha recepción")
-        col_ok     = col_idx("Recibido OK")
-        col_dif    = col_idx("Diferencias")
+        col_resp = col_idx("Responsable recepción")
+        col_fecha = col_idx("Fecha recepción")
+        col_ok = col_idx("Recibido OK")
+        col_dif = col_idx("Diferencias")
 
-        if col_estado: ws.update_cell(fila, col_estado, estado)
-        if col_resp:   ws.update_cell(fila, col_resp, responsable)
-        if col_fecha:  ws.update_cell(fila, col_fecha, ahora.strftime("%d/%m/%Y %H:%M"))
-        if col_ok:     ws.update_cell(fila, col_ok, "Sí" if recibido_ok else "No")
-        if col_dif and diferencias: ws.update_cell(fila, col_dif, diferencias)
+        if col_estado:
+            ws.update_cell(fila, col_estado, estado)
+        if col_resp:
+            ws.update_cell(fila, col_resp, responsable)
+        if col_fecha:
+            ws.update_cell(fila, col_fecha, ahora.strftime("%d/%m/%Y %H:%M"))
+        if col_ok:
+            ws.update_cell(fila, col_ok, "Sí" if recibido_ok else "No")
+        if col_dif and diferencias:
+            ws.update_cell(fila, col_dif, diferencias)
 
         log.info(f"✅ Envío fila {fila} marcado como {estado}")
     except Exception as e:
@@ -331,7 +337,8 @@ def marcar_recibido(fila: int, responsable: str, recibido_ok: bool, diferencias:
 
 # ── HELPERS ───────────────────────────────────────────────────────────────────
 def esc(t) -> str:
-    if t is None: return "-"
+    if t is None:
+        return "-"
     s = str(t)
     for c in ["*", "_", "`", "["]:
         s = s.replace(c, "\\" + c)
@@ -339,6 +346,7 @@ def esc(t) -> str:
 
 def local_corto(local: str) -> str:
     return local.split(" - ")[-1].strip() if " - " in local else local
+
 
 def _normalizar(texto: str) -> str:
     """Normaliza texto para comparación: minúsculas, sin acentos básicos."""
@@ -370,7 +378,6 @@ def _buscar_producto_similar(nombre: str, productos_dict: dict, umbral: float = 
                 score = 0.85
             else:
                 score = SequenceMatcher(None, nombre_norm, prod_norm).ratio()
-
             if score > mejor_score:
                 mejor_score = score
                 mejor_prod = prod
@@ -393,20 +400,29 @@ def _parsear_carga_manual(texto: str) -> list:
     Retorna lista de (cantidad, nombre_item)
     """
     items = []
+    # Separar por líneas, comas, o punto y coma
     partes = re.split(r'[,;\n]+', texto)
+
     for parte in partes:
         parte = parte.strip().lstrip('-•·').strip()
         if not parte:
             continue
+
+        # Patrón: "10 medialunas" o "10x medialunas" o "10 x medialunas"
         m = re.match(r'^(\d+[\.,]?\d*)\s*[xX]?\s+(.+)$', parte)
         if m:
             items.append((m.group(1).strip(), m.group(2).strip()))
             continue
+
+        # Patrón: "medialunas 10" o "medialunas: 10" o "medialunas x10"
         m = re.match(r'^(.+?)\s*[:xX]?\s*(\d+[\.,]?\d*)$', parte)
         if m and m.group(2):
             items.append((m.group(2).strip(), m.group(1).strip()))
             continue
+
+        # Si no matchea nada, asumir cantidad 1
         items.append(("1", parte))
+
     return items
 
 
@@ -427,6 +443,7 @@ def agregar_producto_nuevo(nombre: str, categoria: str = "Varios", unidad: str =
 
 
 # ── HANDLERS ──────────────────────────────────────────────────────────────────
+
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [
         [InlineKeyboardButton("📦 Nuevo envío", callback_data="menu_envio")],
@@ -511,8 +528,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if info["productos_lista"]:
             lines = []
             for j, p in enumerate(info["productos_lista"]):
-                tipo_str = f" ({info['tipos_lista'][j]})" if j < len(info['tipos_lista']) else ""
-                lines.append(f" · {p}{tipo_str}: {info['cantidades_lista'][j]}")
+                lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
             resumen = "\n\n📋 *Agregados:*\n" + "\n".join(lines)
 
         await query.edit_message_text(
@@ -536,8 +552,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if info["productos_lista"]:
             lines = []
             for j, p in enumerate(info["productos_lista"]):
-                tipo_str = f" ({info['tipos_lista'][j]})" if j < len(info['tipos_lista']) else ""
-                lines.append(f" · {p}{tipo_str}: {info['cantidades_lista'][j]}")
+                lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
             resumen = "\n\n📋 *Agregados:*\n" + "\n".join(lines)
 
         await query.edit_message_text(
@@ -553,9 +568,9 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "✏️ *Carga manual*\n\n"
             "Escribí los productos con cantidades, separados por coma o en líneas distintas.\n\n"
             "*Ejemplos:*\n"
-            " `10 medialunas, 5 brownies, 3 pan brioche`\n"
-            " `medialunas 10, croissants 5`\n"
-            " `10 x alfajores, 20 x cookies`\n\n"
+            "  `10 medialunas, 5 brownies, 3 pan brioche`\n"
+            "  `medialunas 10, croissants 5`\n"
+            "  `10 x alfajores, 20 x cookies`\n\n"
             "Si el producto no existe en el catálogo, se agrega automáticamente.",
             parse_mode="Markdown"
         )
@@ -582,11 +597,12 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await query.answer("Agregá al menos un producto", show_alert=True)
             return
         info["paso"] = "esperando_bultos_total"
+
         lines = []
         for j, p in enumerate(info["productos_lista"]):
-            tipo_str = f" ({info['tipos_lista'][j]})" if j < len(info['tipos_lista']) else ""
-            lines.append(f" · {p}{tipo_str}: {info['cantidades_lista'][j]}")
+            lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
         resumen = "\n".join(lines)
+
         await query.edit_message_text(
             f"📦 *{local_corto(info['origen'])}* → *{local_corto(info['destino'])}*\n\n"
             f"📋 *Productos:*\n{resumen}\n\n"
@@ -602,8 +618,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         lines = []
         for j, p in enumerate(info["productos_lista"]):
-            tipo_str = f" ({info['tipos_lista'][j]})" if j < len(info['tipos_lista']) else ""
-            lines.append(f" · {p}{tipo_str}: {info['cantidades_lista'][j]}")
+            lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
         resumen = "\n".join(lines)
 
         keyboard = [
@@ -630,8 +645,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         # Notificar
         lines = []
         for j, p in enumerate(info["productos_lista"]):
-            tipo_str = f" ({info['tipos_lista'][j]})" if j < len(info['tipos_lista']) else ""
-            lines.append(f" · {p}{tipo_str}: {info['cantidades_lista'][j]}")
+            lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
         resumen = "\n".join(lines)
 
         msg_notif = (
@@ -643,6 +657,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             f"🕐 {info['hora']}\n\n"
             f"📋 *Productos:*\n{resumen}"
         )
+
         for cid in NOTIFY_IDS:
             try:
                 await context.bot.send_message(chat_id=cid, text=msg_notif, parse_mode="Markdown")
@@ -664,6 +679,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         idx = int(data.split("_")[2])
         local = LOCALES[idx]
         pendientes = obtener_envios_pendientes(local)
+
         if not pendientes:
             await query.edit_message_text(f"✅ No hay envíos pendientes para {local_corto(local)}.")
             estado_usuario.pop(chat_id, None)
@@ -679,7 +695,6 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 callback_data=f"recibir_env_{i}"
             )])
         keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-
         await query.edit_message_text(
             f"📥 *Envíos pendientes para {local_corto(local)}:*",
             reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
@@ -696,15 +711,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info["paso"] = "esperando_nombre_recibir"
 
         prods = env["productos"].split("\n")
-        tipos = env["tipos"].split("\n") if env["tipos"] else []
         cants = env["cantidades"].split("\n")
         bultos = env["bultos"].split("\n")
         lines = []
         for j, p in enumerate(prods):
             c = cants[j] if j < len(cants) else "?"
             b = bultos[j] if j < len(bultos) else "?"
-            t = f" ({tipos[j]})" if j < len(tipos) and tipos[j] else ""
-            lines.append(f" · {p}{t}: {c} — {b} bultos")
+            lines.append(f"  · {p}: {c} — {b} bultos")
         resumen = "\n".join(lines)
 
         await query.edit_message_text(
@@ -754,6 +767,7 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     texto = update.message.text.strip()
 
     if chat_id not in estado_usuario:
+        # Si no hay estado, mostrar menú
         keyboard = [
             [InlineKeyboardButton("📦 Nuevo envío", callback_data="menu_envio")],
             [InlineKeyboardButton("📥 Recibir envío", callback_data="menu_recibir")],
@@ -777,11 +791,9 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = [[InlineKeyboardButton(f"🏷️ {cat}", callback_data=f"cat_{cat}")] for cat in categorias]
         keyboard.append([InlineKeyboardButton("✏️ Carga manual", callback_data="carga_manual")])
         keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-
         await update.message.reply_text(
             f"👤 {esc(texto)}\n\nElegí una categoría de productos:",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
         return
 
@@ -801,90 +813,63 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         nuevos = []
         matcheados = []
 
-        # Almacenar items procesados para preguntar tipo después
-        info["items_carga_manual"] = []
-
         for cantidad, nombre in items:
             prod_match, cat_match = _buscar_producto_similar(nombre, productos)
             if prod_match:
                 info["productos_lista"].append(prod_match)
                 info["cantidades_lista"].append(cantidad)
-                info["items_carga_manual"].append((prod_match, cat_match))
-                matcheados.append(f" ✅ {prod_match}: {cantidad}")
+                # Auto-assign type from matched category
+                tipo = cat_match if cat_match else "Producto Terminado"
+                info["tipos_lista"].append(tipo)
+                matcheados.append(f"  ✅ {prod_match}: {cantidad}")
             else:
+                # Producto nuevo → agregar al catálogo (default to "Producto Terminado")
                 nombre_cap = nombre.strip().capitalize()
                 agregar_producto_nuevo(nombre_cap)
                 info["productos_lista"].append(nombre_cap)
                 info["cantidades_lista"].append(cantidad)
-                info["items_carga_manual"].append((nombre_cap, "Varios"))
-                nuevos.append(f" 🆕 {nombre_cap}: {cantidad}")
+                info["tipos_lista"].append("Producto Terminado")
+                nuevos.append(f"  🆕 {nombre_cap}: {cantidad}")
 
         if matcheados:
             resumen_lines.append("*Productos encontrados:*\n" + "\n".join(matcheados))
         if nuevos:
             resumen_lines.append("*Productos nuevos (agregados al catálogo):*\n" + "\n".join(nuevos))
 
-        # Preguntar tipo para cada producto
-        info["paso"] = "pidiendo_tipos_carga_manual"
-        info["indice_tipo_actual"] = 0
+        info["paso"] = "eligiendo_categoria"
 
-        if len(info["items_carga_manual"]) > 0:
-            prod_actual, cat_actual = info["items_carga_manual"][0]
-            keyboard = [
-                [InlineKeyboardButton("❄️ Congelado", callback_data=f"tipo_carga_congelado")],
-                [InlineKeyboardButton("✅ Producto Terminado", callback_data=f"tipo_carga_terminado")],
-            ]
+        categorias = list(productos.keys())
+        keyboard = [[InlineKeyboardButton(f"🏷️ {cat}", callback_data=f"cat_{cat}")] for cat in categorias]
+        keyboard.append([InlineKeyboardButton("✏️ Carga manual", callback_data="carga_manual")])
+        keyboard.append([InlineKeyboardButton(f"✅ Terminar y enviar ({len(info['productos_lista'])} productos)", callback_data="terminar_productos")])
+        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
 
-            all_lines = []
-            for j, p in enumerate(info["productos_lista"]):
-                all_lines.append(f" · {p}: {info['cantidades_lista'][j]}")
-            resumen_total = "\n".join(all_lines)
+        all_lines = []
+        for j, p in enumerate(info["productos_lista"]):
+            all_lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
+        resumen_total = "\n".join(all_lines)
 
-            await update.message.reply_text(
-                f"✏️ *Carga manual procesada*\n\n" + "\n\n".join(resumen_lines) +
-                f"\n\n📋 *Productos:*\n{resumen_total}\n\n"
-                f"🏷️ *Producto 1 de {len(info['items_carga_manual'])}: {prod_actual}*\n\n"
-                f"¿Es Congelado o Producto Terminado?",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown"
-            )
-        else:
-            info["paso"] = "eligiendo_categoria"
-            categorias = list(productos.keys())
-            keyboard = [[InlineKeyboardButton(f"🏷️ {cat}", callback_data=f"cat_{cat}")] for cat in categorias]
-            keyboard.append([InlineKeyboardButton("✏️ Carga manual", callback_data="carga_manual")])
-            keyboard.append([InlineKeyboardButton(f"✅ Terminar y enviar ({len(info['productos_lista'])} productos)", callback_data="terminar_productos")])
-            keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-            await update.message.reply_text("No se procesaron productos.", reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown")
+        await update.message.reply_text(
+            f"✏️ *Carga manual procesada*\n\n"
+            + "\n\n".join(resumen_lines) +
+            f"\n\n📋 *Todos los productos:*\n{resumen_total}\n\n"
+            f"Seguí agregando o terminá:",
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+        )
         return
 
-    # Cantidad del producto → preguntar tipo si es de categoría que permite múltiples
+    # Cantidad del producto → agregar y volver a categorías
     if paso == "esperando_cantidad":
         prod = info.get("producto_actual", "")
-        cat = info.get("categoria_actual", "")
         info["productos_lista"].append(prod)
         info["cantidades_lista"].append(texto)
+        # Auto-assign type from category
+        cat = info.get("categoria_actual", "Varios")
+        tipo = cat if cat != "Varios" else "Producto Terminado"
+        info["tipos_lista"].append(tipo)
+        info["paso"] = "eligiendo_categoria"
 
-        # Preguntar tipo de producto si está en categoría "Congelado" o "Producto Terminado"
-        if cat in ["Congelado", "Producto Terminado"]:
-            # Producto ya viene de categoría definida
-            info["tipos_lista"].append(cat)
-            info["paso"] = "eligiendo_categoria"
-        else:
-            # Para Pastelería y Varios, preguntar el tipo
-            info["paso"] = "pidiendo_tipo_producto"
-            keyboard = [
-                [InlineKeyboardButton("❄️ Congelado", callback_data=f"tipo_congelado")],
-                [InlineKeyboardButton("✅ Producto Terminado", callback_data=f"tipo_terminado")],
-            ]
-            await update.message.reply_text(
-                f"🏷️ *{prod}* — {texto}\n\n"
-                f"¿Es un producto Congelado o Producto Terminado?",
-                reply_markup=InlineKeyboardMarkup(keyboard),
-                parse_mode="Markdown"
-            )
-            return
-
+        # Volver a categorías
         productos = cargar_productos()
         categorias = list(productos.keys())
         keyboard = [[InlineKeyboardButton(f"🏷️ {cat}", callback_data=f"cat_{cat}")] for cat in categorias]
@@ -894,16 +879,14 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         lines = []
         for j, p in enumerate(info["productos_lista"]):
-            tipo_str = f" ({info['tipos_lista'][j]})" if j < len(info['tipos_lista']) else ""
-            lines.append(f" · {p}{tipo_str}: {info['cantidades_lista'][j]}")
+            lines.append(f"  · {p}: {info['cantidades_lista'][j]}")
         resumen = "\n".join(lines)
 
         await update.message.reply_text(
             f"✅ Agregado: *{prod}* — {texto}\n\n"
             f"📋 *Productos:*\n{resumen}\n\n"
             f"Elegí otra categoría o terminá:",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
         return
 
@@ -915,8 +898,7 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
         await update.message.reply_text(
             f"📦 Bultos: *{texto}*\n\n🚗 ¿Cómo se envía?",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
         return
 
@@ -929,8 +911,7 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         ]
         await update.message.reply_text(
             f"👤 {esc(texto)}\n\n¿Llegó todo bien?",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
         )
         return
 
@@ -957,110 +938,15 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
 
-async def callback_tipo_producto(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler para seleccionar tipo de producto individual."""
-    query = update.callback_query
-    await query.answer()
-    chat_id = query.message.chat_id
-    data = query.data
-
-    info = estado_usuario.get(chat_id, {})
-
-    if data == "tipo_congelado":
-        info["tipos_lista"].append("Congelado")
-    elif data == "tipo_terminado":
-        info["tipos_lista"].append("Producto Terminado")
-
-    info["paso"] = "eligiendo_categoria"
-    productos = cargar_productos()
-    categorias = list(productos.keys())
-    keyboard = [[InlineKeyboardButton(f"🏷️ {cat}", callback_data=f"cat_{cat}")] for cat in categorias]
-    keyboard.append([InlineKeyboardButton("✏️ Carga manual", callback_data="carga_manual")])
-    keyboard.append([InlineKeyboardButton(f"✅ Terminar y enviar ({len(info['productos_lista'])} productos)", callback_data="terminar_productos")])
-    keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-
-    lines = []
-    for j, p in enumerate(info["productos_lista"]):
-        tipo_str = f" ({info['tipos_lista'][j]})" if j < len(info['tipos_lista']) else ""
-        lines.append(f" · {p}{tipo_str}: {info['cantidades_lista'][j]}")
-    resumen = "\n".join(lines)
-
-    await query.edit_message_text(
-        f"📋 *Productos:*\n{resumen}\n\n"
-        f"Elegí otra categoría o terminá:",
-        reply_markup=InlineKeyboardMarkup(keyboard),
-        parse_mode="Markdown"
-    )
-
-
-async def callback_tipo_carga_manual(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    """Handler para seleccionar tipos en carga manual."""
-    query = update.callback_query
-    await query.answer()
-    chat_id = query.message.chat_id
-    data = query.data
-
-    info = estado_usuario.get(chat_id, {})
-    indice = info.get("indice_tipo_actual", 0)
-
-    if data == "tipo_carga_congelado":
-        info["tipos_lista"].append("Congelado")
-    elif data == "tipo_carga_terminado":
-        info["tipos_lista"].append("Producto Terminado")
-
-    indice += 1
-    info["indice_tipo_actual"] = indice
-
-    # Si hay más productos, preguntar por el siguiente
-    if indice < len(info["items_carga_manual"]):
-        prod_actual, cat_actual = info["items_carga_manual"][indice]
-        keyboard = [
-            [InlineKeyboardButton("❄️ Congelado", callback_data=f"tipo_carga_congelado")],
-            [InlineKeyboardButton("✅ Producto Terminado", callback_data=f"tipo_carga_terminado")],
-        ]
-        await query.edit_message_text(
-            f"🏷️ *Producto {indice + 1} de {len(info['items_carga_manual'])}: {prod_actual}*\n\n"
-            f"¿Es Congelado o Producto Terminado?",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
-    else:
-        # Terminamos de preguntar tipos, ahora a elegir categoría
-        info["paso"] = "eligiendo_categoria"
-        productos = cargar_productos()
-        categorias = list(productos.keys())
-        keyboard = [[InlineKeyboardButton(f"🏷️ {cat}", callback_data=f"cat_{cat}")] for cat in categorias]
-        keyboard.append([InlineKeyboardButton("✏️ Carga manual", callback_data="carga_manual")])
-        keyboard.append([InlineKeyboardButton(f"✅ Terminar y enviar ({len(info['productos_lista'])} productos)", callback_data="terminar_productos")])
-        keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
-
-        all_lines = []
-        for j, p in enumerate(info["productos_lista"]):
-            tipo_str = f" ({info['tipos_lista'][j]})" if j < len(info['tipos_lista']) else ""
-            all_lines.append(f" · {p}{tipo_str}: {info['cantidades_lista'][j]}")
-        resumen_total = "\n".join(all_lines)
-
-        await query.edit_message_text(
-            f"✅ *Tipos confirmados para todos los productos*\n\n"
-            f"📋 *Productos:*\n{resumen_total}\n\n"
-            f"Seguí agregando o terminá:",
-            reply_markup=InlineKeyboardMarkup(keyboard),
-            parse_mode="Markdown"
-        )
-
-
 # ── MAIN ──────────────────────────────────────────────────────────────────────
 def main():
     if not TELEGRAM_TOKEN:
         print("❌ Falta ENVIOS_TELEGRAM_TOKEN")
         return
-
     print("🚚 Iniciando Bot Envíos Lharmonie...")
-    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
+    app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
     app.add_handler(CommandHandler("start", cmd_start))
-    app.add_handler(CallbackQueryHandler(callback_tipo_producto, pattern=r"^tipo_(congelado|terminado)$"))
-    app.add_handler(CallbackQueryHandler(callback_tipo_carga_manual, pattern=r"^tipo_carga_(congelado|terminado)$"))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_texto))
 
