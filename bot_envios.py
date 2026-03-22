@@ -210,48 +210,70 @@ def _crear_productos_iniciales(ws):
     log.info(f"✅ Catálogo inicial creado: {len(rows)} productos")
 
 
+EXPECTED_HEADERS = [
+    "Fecha", "Hora", "Origen", "Destino", "Responsable envío",
+    "Transporte", "Productos", "Cantidades", "Unidades", "Tipos",
+    "Bultos", "Estado", "Responsable recepción", "Fecha recepción",
+    "Recibido OK", "Diferencias", "Observaciones"
+]
+
+
+def _ensure_headers(ws):
+    """Verifica que el header tenga la columna 'Unidades'. Si no, la inserta."""
+    headers = ws.row_values(1)
+    if "Unidades" not in headers:
+        # Encontrar posición después de "Cantidades"
+        try:
+            cant_idx = headers.index("Cantidades")
+            insert_col = cant_idx + 2  # gspread es 1-indexed
+        except ValueError:
+            insert_col = 9  # default después de col 8
+        ws.insert_cols([insert_col])
+        ws.update_cell(1, insert_col, "Unidades")
+        log.info(f"✅ Columna 'Unidades' insertada en posición {insert_col}")
+    return ws.row_values(1)
+
+
 def guardar_envio(datos: dict):
     """Guarda un envío en la pestaña 'Envíos' del Sheet."""
     try:
         gc, sh = get_sheets_client()
         if not sh:
             return
+        created = False
         try:
             ws = sh.worksheet("Envíos")
         except:
             ws = sh.add_worksheet("Envíos", rows=2000, cols=17)
-            ws.append_row([
-                "Fecha", "Hora", "Origen", "Destino", "Responsable envío",
-                "Transporte", "Productos", "Cantidades", "Unidades", "Tipos",
-                "Bultos", "Estado", "Responsable recepción", "Fecha recepción",
-                "Recibido OK", "Diferencias", "Observaciones"
-            ])
+            ws.append_row(EXPECTED_HEADERS)
+            created = True
 
-        productos_str = "\n".join(datos.get("productos_lista", []))
-        cantidades_str = "\n".join(datos.get("cantidades_lista", []))
-        unidades_str = "\n".join(datos.get("unidades_lista", []))
-        tipos_str = "\n".join(datos.get("tipos_lista", []))
-        bultos_str = datos.get("bultos_total", "")
+        if not created:
+            _ensure_headers(ws)
 
-        ws.append_row([
-            datos.get("fecha", ""),
-            datos.get("hora", ""),
-            datos.get("origen", ""),
-            datos.get("destino", ""),
-            datos.get("responsable", ""),
-            datos.get("transporte", ""),
-            productos_str,
-            cantidades_str,
-            unidades_str,
-            tipos_str,
-            bultos_str,
-            "📦 Enviado",
-            "",  # responsable recepción
-            "",  # fecha recepción
-            "",  # recibido OK
-            "",  # diferencias
-            datos.get("observaciones", ""),
-        ])
+        # Leer headers actuales y construir fila por nombre
+        headers = ws.row_values(1)
+        valores = {
+            "Fecha": datos.get("fecha", ""),
+            "Hora": datos.get("hora", ""),
+            "Origen": datos.get("origen", ""),
+            "Destino": datos.get("destino", ""),
+            "Responsable envío": datos.get("responsable", ""),
+            "Transporte": datos.get("transporte", ""),
+            "Productos": "\n".join(datos.get("productos_lista", [])),
+            "Cantidades": "\n".join(datos.get("cantidades_lista", [])),
+            "Unidades": "\n".join(datos.get("unidades_lista", [])),
+            "Tipos": "\n".join(datos.get("tipos_lista", [])),
+            "Bultos": datos.get("bultos_total", ""),
+            "Estado": "📦 Enviado",
+            "Observaciones": datos.get("observaciones", ""),
+        }
+
+        row = []
+        for h in headers:
+            row.append(valores.get(h, ""))
+
+        ws.append_row(row)
         log.info(f"✅ Envío guardado: {datos.get('origen')} → {datos.get('destino')}")
     except Exception as e:
         log.error(f"❌ Error guardando envío: {e}")
