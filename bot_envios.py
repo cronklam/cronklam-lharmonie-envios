@@ -196,45 +196,25 @@ def _crear_productos_iniciales(ws):
     log.info(f"✅ Catálogo inicial creado: {len(rows)} productos")
 EXPECTED_HEADERS = [
     "Fecha", "Hora", "Origen", "Destino", "Responsable envío",
-    "Transporte", "Productos", "Cantidades", "Unidades", "Tipos",
+    "Transporte", "Productos", "Cantidades", "Unidades",
     "Bultos", "Estado", "Responsable recepción", "Fecha recepción",
     "Recibido OK", "Diferencias", "Observaciones"
 ]
-def _ensure_headers(ws):
-    """Verifica que el header tenga la columna 'Unidades'. Si no, la agrega."""
-    headers = ws.row_values(1)
-    if "Unidades" not in headers:
-        # FIX: En vez de insert_cols (que requiere datos), reconstruir headers
-        # Encontrar posición después de "Cantidades"
-        try:
-            cant_idx = headers.index("Cantidades")
-            # Agregar "Unidades" al final del header y reordenar
-            new_headers = headers[:cant_idx + 1] + ["Unidades"] + headers[cant_idx + 1:]
-        except ValueError:
-            new_headers = headers + ["Unidades"]
-
-        # Actualizar la fila de headers
-        from gspread.utils import rowcol_to_a1
-        end_col = rowcol_to_a1(1, len(new_headers))
-        start_col = "A1"
-        ws.update(range_name=f"{start_col}:{end_col}", values=[new_headers])
-        log.info(f"✅ Header 'Unidades' agregado")
-    return ws.row_values(1)
 
 
 def _get_or_create_envios_ws(sh):
     """
     Obtiene o crea la pestaña 'Envíos'. Retorna (worksheet, created_bool).
     Levanta excepción si falla.
+    NUNCA modifica headers existentes — solo lee lo que hay.
     """
     try:
         ws = sh.worksheet("Envíos")
-        _ensure_headers(ws)
         return ws, False
     except Exception as e:
         err_str = str(e).lower()
         if "not found" in err_str or "no worksheet" in err_str:
-            ws = sh.add_worksheet("Envíos", rows=2000, cols=17)
+            ws = sh.add_worksheet("Envíos", rows=2000, cols=len(EXPECTED_HEADERS))
             ws.append_row(EXPECTED_HEADERS)
             log.info("✅ Pestaña 'Envíos' creada")
             return ws, True
@@ -271,7 +251,6 @@ def guardar_envio(datos: dict) -> tuple:
             "Productos": SEP.join(datos.get("productos_lista", [])),
             "Cantidades": SEP.join(datos.get("cantidades_lista", [])),
             "Unidades": SEP.join(datos.get("unidades_lista", [])),
-            "Tipos": SEP.join(datos.get("tipos_lista", [])),
             "Bultos": datos.get("bultos_total", ""),
             "Estado": "Enviado",
             "Observaciones": datos.get("observaciones", ""),
