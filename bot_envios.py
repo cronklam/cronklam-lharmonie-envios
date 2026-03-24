@@ -572,7 +572,19 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await query.edit_message_text("Cancelado.")
         return
     # ── FLUJO ENVÍO ────────────────────────────────────────────────────
-    info = estado_usuario.get(chat_id, {})
+    info = estado_usuario.get(chat_id)
+    if info is None:
+        # El bot se reinició y perdió el estado — volver al menú
+        keyboard = [
+            [InlineKeyboardButton("📦 Nuevo envío", callback_data="menu_envio")],
+            [InlineKeyboardButton("📥 Recibir envío", callback_data="menu_recibir")],
+        ]
+        await query.edit_message_text(
+            "⚠️ Se perdió la sesión (el bot se reinició).\n\n¿Qué querés hacer?",
+            reply_markup=InlineKeyboardMarkup(keyboard), parse_mode="Markdown"
+        )
+        return
+
     if data.startswith("origen_"):
         idx = int(data.split("_")[1])
         info["origen"] = LOCALES[idx]
@@ -1180,6 +1192,31 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         estado_usuario.pop(chat_id, None)
         return
 # ── MAIN ──────────────────────────────────────────────────────────────────────
+async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """Handler global de errores — avisa al usuario en vez de quedar mudo."""
+    log.error(f"❌ Error no atrapado: {context.error}", exc_info=context.error)
+    try:
+        if update and update.effective_chat:
+            chat_id = update.effective_chat.id
+            estado_usuario.pop(chat_id, None)
+            keyboard = [
+                [InlineKeyboardButton("📦 Nuevo envío", callback_data="menu_envio")],
+                [InlineKeyboardButton("📥 Recibir envío", callback_data="menu_recibir")],
+            ]
+            if update.callback_query:
+                await update.callback_query.message.reply_text(
+                    "⚠️ Ocurrió un error. Empezá de nuevo:",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+            elif update.message:
+                await update.message.reply_text(
+                    "⚠️ Ocurrió un error. Empezá de nuevo:",
+                    reply_markup=InlineKeyboardMarkup(keyboard)
+                )
+    except Exception as e:
+        log.error(f"❌ Error en el error handler: {e}")
+
+
 def main():
     if not TELEGRAM_TOKEN:
         print("❌ Falta ENVIOS_TELEGRAM_TOKEN")
@@ -1189,6 +1226,7 @@ def main():
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_texto))
+    app.add_error_handler(error_handler)
     print("✅ Bot Envíos corriendo.")
     app.run_polling(drop_pending_updates=True)
 if __name__ == "__main__":
