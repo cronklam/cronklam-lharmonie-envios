@@ -198,7 +198,7 @@ EXPECTED_HEADERS = [
     "Fecha", "Hora", "Origen", "Destino", "Responsable envío",
     "Transporte", "Productos", "Cantidades", "Unidades",
     "Bultos", "Estado", "Responsable recepción", "Fecha recepción",
-    "Recibido OK", "Diferencias", "Observaciones"
+    "Recibido OK", "Diferencias", "Tiempo envio", "Observaciones"
 ]
 
 
@@ -355,8 +355,33 @@ def obtener_envios_pendientes(local_destino: str) -> tuple:
     except Exception as e:
         log.error(f"❌ Error obteniendo envíos pendientes: {e}")
         return ([], f"Error al buscar envíos: {e}")
+def _calcular_tiempo_envio(fecha_envio: str, hora_envio: str) -> str:
+    """Calcula el tiempo transcurrido desde el envío hasta ahora. Retorna string legible."""
+    try:
+        ahora = datetime.now(TZ_AR)
+        # Parsear fecha y hora del envío: "19/03/2026" + "16:57"
+        dt_envio = datetime.strptime(f"{fecha_envio} {hora_envio}", "%d/%m/%Y %H:%M")
+        dt_envio = dt_envio.replace(tzinfo=TZ_AR)
+        diff = ahora - dt_envio
+        total_min = int(diff.total_seconds() / 60)
+        if total_min < 0:
+            return "—"
+        if total_min < 60:
+            return f"{total_min} min"
+        horas = total_min // 60
+        minutos = total_min % 60
+        if horas < 24:
+            return f"{horas}h {minutos}min"
+        dias = horas // 24
+        horas_rest = horas % 24
+        return f"{dias}d {horas_rest}h"
+    except Exception as e:
+        log.error(f"Error calculando tiempo envío: {e}")
+        return "—"
+
+
 def marcar_recibido(fila: int, responsable: str, recibido_ok: bool, diferencias: str = ""):
-    """Marca un envío como recibido en el Sheet."""
+    """Marca un envío como recibido en el Sheet y calcula tiempo de envío."""
     try:
         gc, sh = get_sheets_client()
         if not sh:
@@ -370,11 +395,25 @@ def marcar_recibido(fila: int, responsable: str, recibido_ok: bool, diferencias:
                 return None
         ahora = datetime.now(TZ_AR)
         estado = "Recibido" if recibido_ok else "Con diferencias"
+
+        # Leer datos del envío para calcular tiempo
+        row_data = ws.row_values(fila)
+        fecha_envio = ""
+        hora_envio = ""
+        try:
+            fecha_envio = row_data[headers.index("Fecha")] if "Fecha" in headers else ""
+            hora_envio = row_data[headers.index("Hora")] if "Hora" in headers else ""
+        except (IndexError, ValueError):
+            pass
+        tiempo = _calcular_tiempo_envio(fecha_envio, hora_envio) if fecha_envio and hora_envio else "—"
+
         col_estado = col_idx("Estado")
         col_resp = col_idx("Responsable recepción")
         col_fecha = col_idx("Fecha recepción")
         col_ok = col_idx("Recibido OK")
         col_dif = col_idx("Diferencias")
+        col_tiempo = col_idx("Tiempo envio")
+
         if col_estado:
             ws.update_cell(fila, col_estado, estado)
         if col_resp:
@@ -385,7 +424,10 @@ def marcar_recibido(fila: int, responsable: str, recibido_ok: bool, diferencias:
             ws.update_cell(fila, col_ok, "Sí" if recibido_ok else "No")
         if col_dif and diferencias:
             ws.update_cell(fila, col_dif, diferencias)
-        log.info(f"✅ Envío fila {fila} marcado como {estado}")
+        if col_tiempo:
+            ws.update_cell(fila, col_tiempo, tiempo)
+
+        log.info(f"✅ Envío fila {fila} marcado como {estado} — Tiempo: {tiempo}")
     except Exception as e:
         log.error(f"❌ Error marcando recibido: {e}")
 # ── HELPERS ───────────────────────────────────────────────────────────────────
@@ -967,11 +1009,13 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "recibir_todo_ok":
         env = info.get("envio_a_recibir", {})
         resp = info.get("nombre_recibir", "")
+        tiempo = _calcular_tiempo_envio(env.get("fecha", ""), env.get("hora", ""))
         marcar_recibido(env["fila"], resp, recibido_ok=True)
         msg_notif = (
             f"✅ *Envío recibido*\n\n"
             f"📍 {local_corto(env['origen'])} → {local_corto(env['destino'])}\n"
             f"👤 Recibió: {esc(resp)}\n"
+            f"⏱️ Tiempo: {tiempo}\n"
             f"📋 Todo OK"
         )
         for cid in NOTIFY_IDS:
@@ -979,7 +1023,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(chat_id=cid, text=msg_notif, parse_mode="Markdown")
             except:
                 pass
-        await query.edit_message_text(f"✅ *Envío recibido correctamente.*", parse_mode="Markdown")
+        await query.edit_message_text(f"✅ *Envío recibido correctamente.*\n⏱️ Tiempo: {tiempo}", parse_mode="Markdown")
         estado_usuario.pop(chat_id, None)
         return
     if data == "recibir_con_diferencias":
@@ -1155,11 +1199,13 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if paso == "esperando_diferencias":
         env = info.get("envio_a_recibir", {})
         resp = info.get("nombre_recibir", "")
+        tiempo = _calcular_tiempo_envio(env.get("fecha", ""), env.get("hora", ""))
         marcar_recibido(env["fila"], resp, recibido_ok=False, diferencias=texto)
         msg_notif = (
             f"⚠️ *Envío recibido con diferencias*\n\n"
             f"📍 {local_corto(env['origen'])} → {local_corto(env['destino'])}\n"
             f"👤 Recibió: {esc(resp)}\n"
+            f"⏱️ Tiempo: {tiempo}\n"
             f"📝 Diferencias: {esc(texto)}"
         )
         for cid in NOTIFY_IDS:
