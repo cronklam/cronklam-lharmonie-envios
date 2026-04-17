@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Bot de Telegram — Envíos + Stock Lharmonie (v2 simplificado)
+Bot de Telegram — Envios + Stock Lharmonie (v3)
 =============================================================
 Herramienta de CARGA DE DATOS para empleados.
-4 acciones: Enviar, Recibir, Cargar stock, Fermentación.
+5 acciones: Enviar, Recibir, Cargar stock, Fermentacion, Ordenes del dia.
 Carga manual por texto libre con fuzzy matching.
+Zone-aware product catalog con checklist por zona.
 """
 import os
 import re
@@ -23,7 +24,7 @@ from telegram.ext import (
     MessageHandler, filters, ContextTypes,
 )
 
-# ── CONFIG ────────────────────────────────────────────────────────────────────
+# -- CONFIG --------------------------------------------------------------------
 TELEGRAM_TOKEN = os.environ.get(
     "ENVIOS_TELEGRAM_TOKEN",
     "8631530577:AAGM0J5qq2VqcZ7FaSeXP_UAtinPcAYW9jc",
@@ -31,7 +32,10 @@ TELEGRAM_TOKEN = os.environ.get(
 SHEETS_ID = os.environ.get("ENVIOS_SHEETS_ID", "")
 GOOGLE_CREDS = os.environ.get("GOOGLE_CREDENTIALS", "")
 
-# ── LOCALES ───────────────────────────────────────────────────────────────────
+# Bistrosoft Sheet (stock minimo)
+BISTROSOFT_SHEET_ID = "1s6kPguwD25k3xpmbUoHq1KNFd_SEva3z7pvTGhA4bsE"
+
+# -- LOCALES -------------------------------------------------------------------
 LOCALES = [
     "CDP - Nicaragua (Produccion)",
     "LH2 - Nicaragua 6068",
@@ -42,20 +46,20 @@ LOCALES = [
 LOCALES_RETAIL = [l for l in LOCALES if "CDP" not in l]
 LOCAL_KEYS = ["LH2", "LH3", "LH4", "LH5"]
 ZONAS = ["Cocina", "Mostrador", "Barra"]
-TRANSPORTES = ["🚗 Ezequiel (Mister)", "🚕 Uber"]
+TRANSPORTES = ["\U0001f697 Ezequiel (Mister)", "\U0001f695 Uber"]
 
 # IDs para notificaciones (Martin + Iaras)
 NOTIFY_IDS = [6457094702, 5358183977, 7354049230]
 
 logging.basicConfig(
-    format="%(asctime)s — %(levelname)s — %(message)s", level=logging.INFO
+    format="%(asctime)s \u2014 %(levelname)s \u2014 %(message)s", level=logging.INFO
 )
 log = logging.getLogger(__name__)
 
-# ── ESTADO DE USUARIOS ───────────────────────────────────────────────────────
+# -- ESTADO DE USUARIOS -------------------------------------------------------
 estado_usuario = {}  # chat_id -> {paso, datos...}
 
-# ── GOOGLE SHEETS ─────────────────────────────────────────────────────────────
+# -- GOOGLE SHEETS -------------------------------------------------------------
 _sheets_cache = {"gc": None, "sh": None, "ts": 0}
 SHEETS_CACHE_TTL = 300
 
@@ -85,159 +89,222 @@ def get_sheets_client():
         return None, None
 
 
+def _get_gspread_client():
+    """Returns just the gspread client (gc) for opening other sheets."""
+    gc, _ = get_sheets_client()
+    return gc
+
+
 def get_stock_sheet():
-    """Returns the same gspread Spreadsheet — todo en un solo Sheet."""
+    """Returns the same gspread Spreadsheet -- todo en un solo Sheet."""
     _, sh = get_sheets_client()
     return sh
 
 
-# ── PRODUCTOS ─────────────────────────────────────────────────────────────────
+# -- PRODUCTOS -----------------------------------------------------------------
 def cargar_productos() -> tuple:
     """
     Lee la pestana 'Productos Envio' del Sheet.
-    Retorna (dict categorias, dict unidades):
+    Retorna (dict categorias, dict unidades, dict zonas):
       - categorias: {categoria: [producto1, ...]}
       - unidades:   {producto: "u"|"kg"|...}
+      - zonas:      {producto: ["Cocina", "Mostrador", ...]}
     """
     try:
         _, sh = get_sheets_client()
         if not sh:
-            return {}, {}
+            return {}, {}, {}
         try:
-            ws = sh.worksheet("Productos Envío")
+            ws = sh.worksheet("Productos Envio")
         except Exception:
-            ws = sh.add_worksheet("Productos Envío", rows=200, cols=3)
-            ws.append_row(["Categoría", "Producto", "Unidad"])
-            _crear_productos_iniciales(ws)
+            try:
+                ws = sh.worksheet("Productos Env\u00edo")
+            except Exception:
+                ws = sh.add_worksheet("Productos Envio", rows=200, cols=4)
+                ws.append_row(["Categor\u00eda", "Producto", "Unidad", "Zona"])
+                _crear_productos_iniciales(ws)
         vals = ws.get_all_values()
         header_idx = 0
         for i, row in enumerate(vals):
-            if "Categoría" in row or "Categoria" in row:
+            if "Categor\u00eda" in row or "Categoria" in row:
                 header_idx = i
                 break
         productos = {}
         unidades = {}
-        for row in vals[header_idx + 1 :]:
+        zonas = {}
+        # Detect if there's a 4th column (Zona)
+        has_zona_col = len(vals[header_idx]) >= 4 if vals else False
+        for row in vals[header_idx + 1:]:
             if not any(row):
                 continue
             cat = row[0].strip() if len(row) > 0 else ""
             prod = row[1].strip() if len(row) > 1 else ""
             unidad = row[2].strip() if len(row) > 2 else "u"
+            zona_str = row[3].strip() if len(row) > 3 and has_zona_col else ""
             if cat and prod:
                 productos.setdefault(cat, []).append(prod)
                 unidades[prod] = unidad or "u"
+                if zona_str:
+                    zonas[prod] = [z.strip() for z in zona_str.split(",") if z.strip()]
+                else:
+                    # Default zone assignment based on category
+                    zonas[prod] = _default_zones_for_category(cat)
         log.info(
             f"Productos cargados: {sum(len(v) for v in productos.values())} "
             f"en {len(productos)} categorias"
         )
-        return productos, unidades
+        return productos, unidades, zonas
     except Exception as e:
         log.error(f"Error cargando productos: {e}")
-        return {}, {}
+        return {}, {}, {}
+
+
+def _default_zones_for_category(cat: str) -> list:
+    """Default zone for a category when not specified in sheet."""
+    cat_lower = cat.lower()
+    if "pasteler" in cat_lower:
+        return ["Mostrador"]
+    if "elaborados" in cat_lower:
+        return ["Cocina"]
+    if "varios" in cat_lower:
+        return ["Cocina"]
+    if "barra" in cat_lower:
+        return ["Barra"]
+    return ["Cocina"]
 
 
 def _crear_productos_iniciales(ws):
-    """Crea el catalogo inicial de productos."""
+    """Crea el catalogo inicial de productos con zona."""
     productos = [
-        ("Pastelería", "Alfajor de chocolate", "u"),
-        ("Pastelería", "Alfajor de nuez", "u"),
-        ("Pastelería", "Alfajor de pistacho", "u"),
-        ("Pastelería", "Barritas proteína", "u"),
-        ("Pastelería", "Brownie", "u"),
-        ("Pastelería", "Budín", "u"),
-        ("Pastelería", "Cookie chocolate", "u"),
-        ("Pastelería", "Cookie de maní", "u"),
-        ("Pastelería", "Cookie melu", "u"),
-        ("Pastelería", "Cookie nuez", "u"),
-        ("Pastelería", "Cookie red velvet", "u"),
-        ("Pastelería", "Cuadrado de coco", "u"),
-        ("Pastelería", "Muffin", "u"),
-        ("Pastelería", "Porción de dátiles", "u"),
-        ("Pastelería", "Porción de torta", "u"),
-        ("Pastelería", "Tarteleta", "u"),
-        ("Elaborados", "Bavka choco", "u"),
-        ("Elaborados", "Bavka pistacho", "u"),
-        ("Elaborados", "Brioche pastelera", "u"),
-        ("Elaborados", "Chipa", "u"),
-        ("Elaborados", "Chipa prensado", "u"),
-        ("Elaborados", "Croissant", "u"),
-        ("Elaborados", "Medialunas", "u"),
-        ("Elaborados", "Pain au choco", "u"),
-        ("Elaborados", "Palitos de queso", "u"),
-        ("Elaborados", "Palmeras", "u"),
-        ("Elaborados", "Pan brioche", "u"),
-        ("Elaborados", "Pan brioche cuadrado", "u"),
-        ("Elaborados", "Pan masa madre con semillas", "u"),
-        ("Elaborados", "Pan suisse", "u"),
-        ("Elaborados", "Roll canela", "u"),
-        ("Elaborados", "Roll frambuesa", "u"),
-        ("Elaborados", "Tarta del día", "u"),
-        ("Varios", "Aceite de girasol", "u"),
-        ("Varios", "Aceite de oliva cocina", "u"),
-        ("Varios", "Aderezo caesar", "u"),
-        ("Varios", "Almendras", "kg"),
-        ("Varios", "Almendras fileteadas", "kg"),
-        ("Varios", "Arroz yamani cocido", "kg"),
-        ("Varios", "Arroz yamani crudo", "kg"),
-        ("Varios", "Arvejas", "u"),
-        ("Varios", "Azúcar común", "kg"),
-        ("Varios", "Azúcar impalpable", "kg"),
-        ("Varios", "Chocolate en barra", "u"),
-        ("Varios", "Chocolate en trozos", "kg"),
-        ("Varios", "Crema bariloche", "u"),
-        ("Varios", "Crema pastelera de chocolate", "kg"),
-        ("Varios", "Crema pastelera de panadería", "kg"),
-        ("Varios", "Dulce de leche", "kg"),
-        ("Varios", "Frangipane", "kg"),
-        ("Varios", "Frosting de queso", "g"),
-        ("Varios", "Granola", "kg"),
-        ("Varios", "Hongos cocidos", "u"),
-        ("Varios", "Lomitos de atún", "u"),
-        ("Varios", "Maple de huevos", "u"),
-        ("Varios", "Manteca común", "u"),
-        ("Varios", "Manteca saborizada", "u"),
-        ("Varios", "Mermelada de cocina", "u"),
-        ("Varios", "Mermelada de frambuesa", "u"),
-        ("Varios", "Miel", "u"),
-        ("Varios", "Pasta de atún", "g"),
-        ("Varios", "Pasta de pistacho", "g"),
-        ("Varios", "Pesto", "g"),
-        ("Varios", "Picles de pepino", "u"),
-        ("Varios", "Pistacho procesado", "g"),
-        ("Varios", "Porción de trucha grill", "u"),
-        ("Varios", "Queso crema", "u"),
-        ("Varios", "Queso sardo", "u"),
-        ("Varios", "Queso tybo", "u"),
-        ("Varios", "Quinoa cocida", "kg"),
-        ("Varios", "Quinoa crocante", "kg"),
-        ("Varios", "Salsa holandesa", "u"),
-        ("Varios", "Vinagre", "u"),
-        ("Varios", "Wraps de espinaca", "u"),
-        ("Varios", "Maní", "kg"),
-        ("Varios", "Sal", "kg"),
+        # Pasteleria -> Mostrador
+        ("Pasteler\u00eda", "Alfajor de chocolate", "u", "Mostrador"),
+        ("Pasteler\u00eda", "Alfajor de nuez", "u", "Mostrador"),
+        ("Pasteler\u00eda", "Alfajor de pistacho", "u", "Mostrador"),
+        ("Pasteler\u00eda", "Barritas prote\u00edna", "u", "Mostrador"),
+        ("Pasteler\u00eda", "Brownie", "u", "Mostrador"),
+        ("Pasteler\u00eda", "Bud\u00edn", "u", "Mostrador"),
+        ("Pasteler\u00eda", "Cookie chocolate", "u", "Mostrador"),
+        ("Pasteler\u00eda", "Cookie de man\u00ed", "u", "Mostrador"),
+        ("Pasteler\u00eda", "Cookie melu", "u", "Mostrador"),
+        ("Pasteler\u00eda", "Cookie nuez", "u", "Mostrador"),
+        ("Pasteler\u00eda", "Cookie red velvet", "u", "Mostrador"),
+        ("Pasteler\u00eda", "Cuadrado de coco", "u", "Mostrador"),
+        ("Pasteler\u00eda", "Muffin", "u", "Mostrador"),
+        ("Pasteler\u00eda", "Porci\u00f3n de d\u00e1tiles", "u", "Mostrador"),
+        ("Pasteler\u00eda", "Porci\u00f3n de torta", "u", "Mostrador"),
+        ("Pasteler\u00eda", "Tarteleta", "u", "Mostrador"),
+        ("Pasteler\u00eda", "Torta entera", "u", "Mostrador"),
+        ("Pasteler\u00eda", "Torta rogel", "u", "Mostrador"),
+        # Elaborados -> Cocina (congelados)
+        ("Elaborados", "Bavka choco", "u", "Cocina"),
+        ("Elaborados", "Bavka pistacho", "u", "Cocina"),
+        ("Elaborados", "Brioche pastelera", "u", "Cocina,Mostrador"),
+        ("Elaborados", "Chipa", "u", "Cocina"),
+        ("Elaborados", "Chipa prensado", "u", "Cocina"),
+        ("Elaborados", "Croissant", "u", "Cocina"),
+        ("Elaborados", "Croissant de almendras", "u", "Cocina"),
+        ("Elaborados", "Medialunas", "u", "Cocina"),
+        ("Elaborados", "Muffin de banana", "u", "Mostrador"),
+        ("Elaborados", "Pain au choco", "u", "Cocina"),
+        ("Elaborados", "Pain au choco con almendras", "u", "Cocina"),
+        ("Elaborados", "Palitos de queso", "u", "Cocina"),
+        ("Elaborados", "Palmeras", "u", "Cocina"),
+        ("Elaborados", "Pan brioche", "u", "Cocina"),
+        ("Elaborados", "Pan brioche cuadrado", "u", "Cocina"),
+        ("Elaborados", "Pan masa madre con semillas", "u", "Cocina"),
+        ("Elaborados", "Pan suisse", "u", "Cocina"),
+        ("Elaborados", "Roll canela", "u", "Cocina"),
+        ("Elaborados", "Roll frambuesa", "u", "Cocina"),
+        ("Elaborados", "Roll de man\u00ed", "u", "Cocina"),
+        ("Elaborados", "Tarta del d\u00eda", "u", "Cocina"),
+        # Varios -> Cocina (insumos)
+        ("Varios", "Aceite de girasol", "u", "Cocina"),
+        ("Varios", "Aceite de oliva cocina", "u", "Cocina"),
+        ("Varios", "Aceite de oliva Zuelo", "lt", "Cocina"),
+        ("Varios", "Aderezo caesar", "u", "Cocina"),
+        ("Varios", "Almendras", "kg", "Cocina"),
+        ("Varios", "Almendras fileteadas", "kg", "Cocina"),
+        ("Varios", "Arroz yamani cocido", "kg", "Cocina"),
+        ("Varios", "Arroz yamani crudo", "kg", "Cocina"),
+        ("Varios", "Arvejas", "u", "Cocina"),
+        ("Varios", "Az\u00facar com\u00fan", "kg", "Cocina"),
+        ("Varios", "Az\u00facar impalpable", "kg", "Cocina"),
+        ("Varios", "Chocolate en barra", "u", "Cocina"),
+        ("Varios", "Chocolate en trozos", "kg", "Cocina"),
+        ("Varios", "Crema bariloche", "u", "Cocina"),
+        ("Varios", "Crema pastelera de chocolate", "kg", "Cocina"),
+        ("Varios", "Crema pastelera de panader\u00eda", "kg", "Cocina"),
+        ("Varios", "Dulce de leche", "kg", "Cocina"),
+        ("Varios", "Frangipane", "kg", "Cocina"),
+        ("Varios", "Frosting de queso", "g", "Cocina"),
+        ("Varios", "Granola", "kg", "Cocina"),
+        ("Varios", "Hongos cocidos", "u", "Cocina"),
+        ("Varios", "Lomitos de at\u00fan", "u", "Cocina"),
+        ("Varios", "Maple de huevos", "u", "Cocina"),
+        ("Varios", "Manteca com\u00fan", "u", "Cocina"),
+        ("Varios", "Manteca saborizada", "u", "Cocina"),
+        ("Varios", "Mermelada de cocina", "u", "Cocina"),
+        ("Varios", "Mermelada de frambuesa", "u", "Cocina"),
+        ("Varios", "Miel", "u", "Cocina"),
+        ("Varios", "Papas gauchitas", "u", "Cocina"),
+        ("Varios", "Pasta de at\u00fan", "g", "Cocina"),
+        ("Varios", "Pasta de pistacho", "g", "Cocina"),
+        ("Varios", "Pesto", "g", "Cocina"),
+        ("Varios", "Picles de pepino", "u", "Cocina"),
+        ("Varios", "Pistacho procesado", "g", "Cocina"),
+        ("Varios", "Porci\u00f3n de trucha grill", "u", "Cocina"),
+        ("Varios", "Queso crema", "u", "Cocina"),
+        ("Varios", "Queso sardo", "u", "Cocina"),
+        ("Varios", "Queso tybo", "u", "Cocina"),
+        ("Varios", "Quinoa cocida", "kg", "Cocina"),
+        ("Varios", "Quinoa crocante", "kg", "Cocina"),
+        ("Varios", "Salsa holandesa", "u", "Cocina"),
+        ("Varios", "Siracha", "kg", "Cocina"),
+        ("Varios", "Vinagre", "u", "Cocina"),
+        ("Varios", "Vinagre blanco", "lt", "Cocina"),
+        ("Varios", "Wraps de espinaca", "u", "Cocina"),
+        ("Varios", "Man\u00ed", "kg", "Cocina"),
+        ("Varios", "Sal", "kg", "Cocina"),
+        # Barra -> Barra
+        ("Barra", "Caf\u00e9 de tolva", "u", "Barra"),
+        ("Barra", "Caf\u00e9 Jairo 1/4", "u", "Barra"),
+        ("Barra", "Caf\u00e9 Luis 1/4", "u", "Barra"),
+        ("Barra", "Caf\u00e9 Samba Brasil 1/4", "u", "Barra"),
+        ("Barra", "Caf\u00e9 Trailblazer 1/4", "u", "Barra"),
+        ("Barra", "Caf\u00e9 Cumbia 1/4", "u", "Barra"),
+        ("Barra", "Receta leche casera", "u", "Barra"),
+        ("Barra", "Matcha", "u", "Barra"),
+        ("Barra", "Hibiscus", "u", "Barra"),
+        ("Barra", "C\u00farcuma", "u", "Barra"),
+        ("Barra", "Frutilla congelada", "kg", "Barra"),
+        ("Barra", "Ar\u00e1ndanos congelados", "kg", "Barra"),
+        ("Barra", "T\u00e9 Grey", "u", "Barra"),
+        ("Barra", "T\u00e9 Royal Frut", "u", "Barra"),
+        ("Barra", "T\u00e9 Breakfast", "u", "Barra"),
+        ("Barra", "T\u00e9 Berrys", "u", "Barra"),
     ]
-    rows = [[cat, prod, unidad] for cat, prod, unidad in productos]
+    rows = [[cat, prod, unidad, zona] for cat, prod, unidad, zona in productos]
     ws.append_rows(rows)
     log.info(f"Catalogo inicial creado: {len(rows)} productos")
 
 
-# ── ENVIOS SHEET ──────────────────────────────────────────────────────────────
+# -- ENVIOS SHEET --------------------------------------------------------------
 EXPECTED_HEADERS = [
-    "Fecha", "Hora", "Origen", "Destino", "Responsable envío",
+    "Fecha", "Hora", "Origen", "Destino", "Responsable env\u00edo",
     "Transporte", "Productos", "Cantidades", "Unidades",
-    "Bultos", "Estado", "Responsable recepción", "Fecha recepción",
+    "Bultos", "Estado", "Responsable recepci\u00f3n", "Fecha recepci\u00f3n",
     "Recibido OK", "Diferencias", "Tiempo envio", "Observaciones",
 ]
 
 
 def _get_or_create_envios_ws(sh):
     try:
-        ws = sh.worksheet("Envíos")
+        ws = sh.worksheet("Env\u00edos")
         return ws, False
     except Exception as e:
         err_str = str(e).lower()
         if "not found" in err_str or "no worksheet" in err_str:
-            ws = sh.add_worksheet("Envíos", rows=2000, cols=len(EXPECTED_HEADERS))
+            ws = sh.add_worksheet("Env\u00edos", rows=2000, cols=len(EXPECTED_HEADERS))
             ws.append_row(EXPECTED_HEADERS)
             log.info("Pestana 'Envios' creada")
             return ws, True
@@ -258,7 +325,7 @@ def guardar_envio(datos: dict) -> tuple:
             "Hora": datos.get("hora", ""),
             "Origen": datos.get("origen", ""),
             "Destino": datos.get("destino", ""),
-            "Responsable envío": datos.get("responsable", ""),
+            "Responsable env\u00edo": datos.get("responsable", ""),
             "Transporte": datos.get("transporte", ""),
             "Productos": SEP.join(datos.get("productos_lista", [])),
             "Cantidades": SEP.join(str(c) for c in datos.get("cantidades_lista", [])),
@@ -292,7 +359,7 @@ def obtener_envios_pendientes(local_destino: str) -> tuple:
         if not sh:
             return ([], "No se pudo conectar a Google Sheets.")
         try:
-            ws = sh.worksheet("Envíos")
+            ws = sh.worksheet("Env\u00edos")
         except Exception:
             return ([], None)
         all_values = ws.get_all_values()
@@ -313,7 +380,7 @@ def obtener_envios_pendientes(local_destino: str) -> tuple:
                 return ""
 
         pendientes = []
-        for i, row in enumerate(all_values[h_idx + 1 :], start=h_idx + 2):
+        for i, row in enumerate(all_values[h_idx + 1:], start=h_idx + 2):
             if not any(row):
                 continue
             estado = gcol(row, "Estado")
@@ -339,7 +406,7 @@ def obtener_envios_pendientes(local_destino: str) -> tuple:
                     "hora": gcol(row, "Hora"),
                     "origen": gcol(row, "Origen"),
                     "destino": destino,
-                    "responsable": gcol(row, "Responsable envío"),
+                    "responsable": gcol(row, "Responsable env\u00edo"),
                     "transporte": gcol(row, "Transporte"),
                     "productos": gcol(row, "Productos"),
                     "cantidades": gcol(row, "Cantidades"),
@@ -360,7 +427,7 @@ def _calcular_tiempo_envio(fecha_envio: str, hora_envio: str) -> str:
         diff = ahora - dt_envio
         total_min = int(diff.total_seconds() / 60)
         if total_min < 0:
-            return "—"
+            return "\u2014"
         if total_min < 60:
             return f"{total_min} min"
         horas = total_min // 60
@@ -370,7 +437,7 @@ def _calcular_tiempo_envio(fecha_envio: str, hora_envio: str) -> str:
         dias = horas // 24
         return f"{dias}d {horas % 24}h"
     except Exception:
-        return "—"
+        return "\u2014"
 
 
 def marcar_recibido(fila: int, responsable: str, recibido_ok: bool, diferencias: str = ""):
@@ -378,7 +445,7 @@ def marcar_recibido(fila: int, responsable: str, recibido_ok: bool, diferencias:
         _, sh = get_sheets_client()
         if not sh:
             return
-        ws = sh.worksheet("Envíos")
+        ws = sh.worksheet("Env\u00edos")
         headers = ws.row_values(1)
 
         def col_idx(name):
@@ -400,13 +467,13 @@ def marcar_recibido(fila: int, responsable: str, recibido_ok: bool, diferencias:
         tiempo = (
             _calcular_tiempo_envio(fecha_envio, hora_envio)
             if fecha_envio and hora_envio
-            else "—"
+            else "\u2014"
         )
         updates = [
             ("Estado", estado),
-            ("Responsable recepción", responsable),
-            ("Fecha recepción", ahora.strftime("%d/%m/%Y %H:%M")),
-            ("Recibido OK", "Sí" if recibido_ok else "No"),
+            ("Responsable recepci\u00f3n", responsable),
+            ("Fecha recepci\u00f3n", ahora.strftime("%d/%m/%Y %H:%M")),
+            ("Recibido OK", "S\u00ed" if recibido_ok else "No"),
             ("Tiempo envio", tiempo),
         ]
         if diferencias:
@@ -415,12 +482,12 @@ def marcar_recibido(fila: int, responsable: str, recibido_ok: bool, diferencias:
             ci = col_idx(name)
             if ci:
                 ws.update_cell(fila, ci, val)
-        log.info(f"Envio fila {fila} marcado como {estado} — Tiempo: {tiempo}")
+        log.info(f"Envio fila {fila} marcado como {estado} \u2014 Tiempo: {tiempo}")
     except Exception as e:
         log.error(f"Error marcando recibido: {e}")
 
 
-# ── STOCK SHEET FUNCTIONS ─────────────────────────────────────────────────────
+# -- STOCK SHEET FUNCTIONS -----------------------------------------------------
 
 STOCK_ACTUAL_HEADERS = [
     "Producto", "Categoria",
@@ -509,7 +576,7 @@ def _local_key_from_name(local_name: str) -> str:
 
 def _get_product_category(producto: str) -> str:
     try:
-        productos, _ = cargar_productos()
+        productos, _, _ = cargar_productos()
         for cat, prods in productos.items():
             if producto in prods:
                 return cat
@@ -582,7 +649,7 @@ def stock_update_product(sh, producto: str, categoria: str, updates: dict):
             ws.update(cell_range, [row_data])
         else:
             ws.append_row(row_data, value_input_option="RAW")
-        log.info(f"Stock actualizado: {producto} — {updates}")
+        log.info(f"Stock actualizado: {producto} \u2014 {updates}")
     except Exception as e:
         log.error(f"Error actualizando stock: {e}")
         raise
@@ -634,7 +701,7 @@ def stock_apply_movement(sh, local_name, producto, tipo, cantidad,
         updates[f"{lk}_horneado"] = max(0, horn - cantidad)
         estado_origen = "horneado"
     elif tipo == TIPO_AJUSTE:
-        if "horneado" in observaciones.lower():
+        if "horneado" in observaciones.lower() or "mostrador" in observaciones.lower():
             updates[f"{lk}_horneado"] = cantidad
             estado_destino = "horneado"
         else:
@@ -680,7 +747,212 @@ def stock_apply_envio_recibido(sh, local_destino, productos_lista,
             log.error(f"Error stock_apply_envio_recibido {prod}: {e}")
 
 
-# ── HELPERS ───────────────────────────────────────────────────────────────────
+# -- ORDENES DEL DIA: leer stock minimo de Bistrosoft -------------------------
+
+def _read_stock_minimo_bistrosoft(local_key: str) -> dict:
+    """
+    Lee la tab 'Stock Minimo' del Bistrosoft Sheet.
+    Retorna {producto_lower: cantidad_minima} para el local y dia de semana actual.
+    """
+    try:
+        gc = _get_gspread_client()
+        if not gc:
+            return {}
+        bistro_sh = gc.open_by_key(BISTROSOFT_SHEET_ID)
+        try:
+            ws = bistro_sh.worksheet("Stock M\u00ednimo")
+        except Exception:
+            try:
+                ws = bistro_sh.worksheet("Stock Minimo")
+            except Exception:
+                log.warning("No se encontro tab Stock Minimo en Bistrosoft Sheet")
+                return {}
+
+        vals = ws.get_all_values()
+        if not vals:
+            return {}
+
+        headers = vals[0]
+        # Find the column for this local + today's day of week
+        dias_es = {
+            0: "Lunes", 1: "Martes", 2: "Mi\u00e9rcoles", 3: "Jueves",
+            4: "Viernes", 5: "S\u00e1bado", 6: "Domingo",
+        }
+        ahora = datetime.now(TZ_AR)
+        dia_semana = dias_es.get(ahora.weekday(), "Lunes")
+
+        # Try to find column like "LH4 Lunes" or just the local key
+        target_col = None
+        target_col_general = None
+        for ci, h in enumerate(headers):
+            h_up = h.upper().strip()
+            if local_key.upper() in h_up and _normalizar(dia_semana) in _normalizar(h):
+                target_col = ci
+                break
+            if local_key.upper() in h_up and target_col_general is None:
+                target_col_general = ci
+
+        # Find producto column (first column usually)
+        prod_col = 0
+        for ci, h in enumerate(headers):
+            h_low = h.lower().strip()
+            if "producto" in h_low or "product" in h_low:
+                prod_col = ci
+                break
+
+        if target_col is None:
+            target_col = target_col_general
+        if target_col is None:
+            log.warning(f"No se encontro columna para {local_key} en Stock Minimo")
+            return {}
+
+        result = {}
+        for row in vals[1:]:
+            if not any(row):
+                continue
+            prod = row[prod_col].strip() if prod_col < len(row) else ""
+            val = row[target_col] if target_col < len(row) else ""
+            if prod:
+                result[_normalizar(prod)] = _safe_int(val)
+        return result
+    except Exception as e:
+        log.error(f"Error leyendo Stock Minimo de Bistrosoft: {e}")
+        return {}
+
+
+def _generar_ordenes(local_name: str) -> str:
+    """
+    Genera ordenes de pedido y fermentacion para un local.
+    NO son sugerencias opcionales — son DIRECTIVAS basadas en datos.
+    Retorna el texto formateado para Telegram.
+    """
+    lk = _local_key_from_name(local_name)
+    if not lk:
+        return "No se pudo identificar el local."
+
+    local_short = local_corto(local_name)
+    ahora = datetime.now(TZ_AR)
+    dia = ahora.strftime("%d/%m")
+
+    # Leer stock actual
+    try:
+        sh = get_stock_sheet()
+        if not sh:
+            return "Error conectando a Sheets."
+        stock_actual = stock_read_actual(sh)
+    except Exception as e:
+        log.error(f"Error leyendo stock actual: {e}")
+        return f"Error leyendo stock: {e}"
+
+    # Leer stock minimo de Bistrosoft
+    stock_min = _read_stock_minimo_bistrosoft(lk)
+    if not stock_min:
+        return (
+            f"\U0001f4cb Ordenes {lk} {local_short} — {dia}\n\n"
+            f"Sin datos de stock m\u00ednimo.\n"
+            f"Corr\u00e9 el sync de Bistrosoft primero."
+        )
+
+    # Calcular ordenes
+    pedido_lines = []
+    fermento_lines = []
+
+    # Build a mapping from normalized product name to actual name
+    productos_dict, _, _ = cargar_productos()
+    all_prods = {}
+    for cat, prods in productos_dict.items():
+        for p in prods:
+            all_prods[_normalizar(p)] = p
+
+    for prod_norm, minimo in sorted(stock_min.items(), key=lambda x: -x[1]):
+        if minimo <= 0:
+            continue
+        prod_display = all_prods.get(prod_norm, prod_norm.capitalize())
+        prod_data = stock_actual.get(prod_display, {})
+        congelado = prod_data.get(f"{lk}_congelado", 0)
+        horneado = prod_data.get(f"{lk}_horneado", 0)
+        total = congelado + horneado
+
+        # Pedido: si el total esta por debajo del minimo
+        deficit = minimo - total
+        if deficit > 0:
+            pedido_lines.append(
+                f"  \u2022 {prod_display}: *{deficit}* (ten\u00e9s {total}, necesit\u00e1s {minimo})"
+            )
+
+        # Fermentacion: si hay congelado y se necesita hornear
+        if congelado > 0:
+            demanda = max(0, minimo - horneado)
+            if demanda > 0:
+                sacar = min(congelado, demanda)
+                fermento_lines.append(
+                    f"  \u2022 {prod_display}: sac\u00e1 *{sacar}* (ten\u00e9s {congelado} congeladas)"
+                )
+
+    # Armar mensaje — tono directivo, no sugerencia
+    parts = [f"\U0001f4cb *ORDENES {lk} {local_short}* — {dia}\n"]
+
+    if pedido_lines:
+        parts.append("\U0001f4e6 *PEDIR A CDP:*")
+        parts.extend(pedido_lines[:20])
+        if len(pedido_lines) > 20:
+            parts.append(f"  ... y {len(pedido_lines) - 20} m\u00e1s")
+    else:
+        parts.append("\U0001f4e6 PEDIDO: stock completo, no hace falta pedir")
+
+    parts.append("")
+
+    if fermento_lines:
+        parts.append("\U0001f525 *SACAR A FERMENTAR:*")
+        parts.extend(fermento_lines[:15])
+        if len(fermento_lines) > 15:
+            parts.append(f"  ... y {len(fermento_lines) - 15} m\u00e1s")
+    else:
+        parts.append("\U0001f525 FERMENTACI\u00d3N: no hay congelados para sacar")
+
+    return "\n".join(parts)
+
+
+# -- CHECKLIST POR ZONA --------------------------------------------------------
+
+def _build_zone_checklist(local_name: str, zona: str) -> str:
+    """
+    Builds the checklist message for a zone showing all products.
+    """
+    local_short = local_corto(local_name)
+    lk = _local_key_from_name(local_name)
+
+    productos_dict, unidades_dict, zonas_dict = cargar_productos()
+
+    # Filter products that belong to this zona
+    zone_products = {}  # {categoria: [producto, ...]}
+    for cat, prods in productos_dict.items():
+        for p in prods:
+            prod_zonas = zonas_dict.get(p, _default_zones_for_category(cat))
+            if zona in prod_zonas:
+                zone_products.setdefault(cat, []).append(p)
+
+    if not zone_products:
+        return f"\U0001f4dd {lk} {local_short} \u2014 {zona}\n\nNo hay productos para esta zona."
+
+    parts = [f"\U0001f4dd {lk} {local_short} \u2014 {zona}\n"]
+    parts.append("Chequea\u0301 y manda\u0301 las cantidades:\n")
+
+    for cat in sorted(zone_products.keys()):
+        prods = zone_products[cat]
+        # Use lowercase product names for the checklist (casual)
+        prod_names = [p.lower() for p in prods]
+        parts.append(f"{cat.upper()}:")
+        parts.append(", ".join(prod_names))
+        parts.append("")
+
+    parts.append("Mand\u00e1 tipo: alfajor nuez 5, brownie 8, muffin 3")
+    parts.append("Solo lo que ten\u00e9s, el resto queda en 0.")
+
+    return "\n".join(parts)
+
+
+# -- HELPERS -------------------------------------------------------------------
 def esc(t) -> str:
     if t is None:
         return "-"
@@ -696,7 +968,7 @@ def local_corto(local: str) -> str:
 
 def _normalizar(texto: str) -> str:
     t = texto.lower().strip()
-    for k, v in {"á": "a", "é": "e", "í": "i", "ó": "o", "ú": "u", "ü": "u", "ñ": "n"}.items():
+    for k, v in {"\u00e1": "a", "\u00e9": "e", "\u00ed": "i", "\u00f3": "o", "\u00fa": "u", "\u00fc": "u", "\u00f1": "n"}.items():
         t = t.replace(k, v)
     return t
 
@@ -729,7 +1001,7 @@ def _buscar_producto_similar(nombre: str, productos_dict: dict,
 
 def _parsear_lista_productos(texto: str) -> list:
     """
-    Parsea texto libre tipo "medialunas 50, budines 20" o multilínea.
+    Parsea texto libre tipo "medialunas 50, budines 20" o multilinea.
     Retorna lista de (cantidad_str, nombre_item).
     """
     items = []
@@ -762,7 +1034,7 @@ def _procesar_lista_texto(texto: str) -> tuple:
     if not items:
         return [], [], [], ""
 
-    productos_dict, unidades_dict = cargar_productos()
+    productos_dict, unidades_dict, _ = cargar_productos()
     productos_lista = []
     cantidades_lista = []
     unidades_lista = []
@@ -776,7 +1048,7 @@ def _procesar_lista_texto(texto: str) -> tuple:
             productos_lista.append(prod_match)
             cantidades_lista.append(cantidad_str)
             unidades_lista.append(unit_match or "u")
-            lines.append(f"  {prod_match} — {cantidad_str} {unit_match or 'u'}")
+            lines.append(f"  {prod_match} \u2014 {cantidad_str} {unit_match or 'u'}")
         else:
             nombre_cap = nombre.strip().capitalize()
             # Agregar al catalogo automaticamente
@@ -787,7 +1059,7 @@ def _procesar_lista_texto(texto: str) -> tuple:
             productos_lista.append(nombre_cap)
             cantidades_lista.append(cantidad_str)
             unidades_lista.append("u")
-            lines.append(f"  {nombre_cap} — {cantidad_str} u (nuevo)")
+            lines.append(f"  {nombre_cap} \u2014 {cantidad_str} u (nuevo)")
 
     resumen = "\n".join(lines)
     return productos_lista, cantidades_lista, unidades_lista, resumen
@@ -799,25 +1071,31 @@ def agregar_producto_nuevo(nombre: str, categoria: str = "Varios", unidad: str =
         if not sh:
             return
         try:
-            ws = sh.worksheet("Productos Envío")
+            ws = sh.worksheet("Productos Envio")
         except Exception:
-            return
-        ws.append_row([categoria, nombre, unidad])
+            try:
+                ws = sh.worksheet("Productos Env\u00edo")
+            except Exception:
+                return
+        ws.append_row([categoria, nombre, unidad, "Cocina"])
         log.info(f"Nuevo producto: {nombre}")
     except Exception as e:
         log.error(f"Error agregando producto: {e}")
 
 
-# ── TECLADOS ──────────────────────────────────────────────────────────────────
+# -- TECLADOS ------------------------------------------------------------------
 def _main_menu_kb():
     return InlineKeyboardMarkup([
         [
-            InlineKeyboardButton("📦 Enviar", callback_data="menu_enviar"),
-            InlineKeyboardButton("📥 Recibir", callback_data="menu_recibir"),
+            InlineKeyboardButton("\U0001f4e6 Enviar", callback_data="menu_enviar"),
+            InlineKeyboardButton("\U0001f4e5 Recibir", callback_data="menu_recibir"),
         ],
         [
-            InlineKeyboardButton("📝 Cargar stock", callback_data="menu_cargar"),
-            InlineKeyboardButton("🔥 Fermentación", callback_data="menu_fermentar"),
+            InlineKeyboardButton("\U0001f4dd Cargar stock", callback_data="menu_cargar"),
+            InlineKeyboardButton("\U0001f525 Fermentaci\u00f3n", callback_data="menu_fermentar"),
+        ],
+        [
+            InlineKeyboardButton("\U0001f4cb Ordenes del d\u00eda", callback_data="menu_ordenes"),
         ],
     ])
 
@@ -834,12 +1112,12 @@ def _locales_kb(prefix: str, include_cdp: bool = True):
     return InlineKeyboardMarkup(keyboard)
 
 
-# ── HANDLERS ──────────────────────────────────────────────────────────────────
+# -- HANDLERS ------------------------------------------------------------------
 
 async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     estado_usuario.pop(update.effective_chat.id, None)
     await update.message.reply_text(
-        "🥐 *Lharmonie*\n\n¿Qué hacemos?",
+        "\U0001f950 *Lharmonie*\n\n\u00bfQu\u00e9 hacemos?",
         reply_markup=_main_menu_kb(),
         parse_mode="Markdown",
     )
@@ -849,7 +1127,7 @@ async def cmd_enviar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     estado_usuario[chat_id] = {"paso": "enviar_destino"}
     await update.message.reply_text(
-        "📦 *Nuevo envío*\n\n¿A dónde va?",
+        "\U0001f4e6 *Nuevo env\u00edo*\n\n\u00bfA d\u00f3nde va?",
         reply_markup=_locales_kb("enviar_dest"),
         parse_mode="Markdown",
     )
@@ -859,7 +1137,7 @@ async def cmd_recibir(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     estado_usuario[chat_id] = {"paso": "recibir_local"}
     await update.message.reply_text(
-        "📥 *Recibir envío*\n\n¿En qué local estás?",
+        "\U0001f4e5 *Recibir env\u00edo*\n\n\u00bfEn qu\u00e9 local est\u00e1s?",
         reply_markup=_locales_kb("recibir_local"),
         parse_mode="Markdown",
     )
@@ -869,7 +1147,7 @@ async def cmd_cargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     estado_usuario[chat_id] = {"paso": "cargar_local"}
     await update.message.reply_text(
-        "📝 *Cargar stock*\n\n¿Qué local?",
+        "\U0001f4dd *Cargar stock*\n\n\u00bfQu\u00e9 local?",
         reply_markup=_locales_kb("cargar_local", include_cdp=False),
         parse_mode="Markdown",
     )
@@ -879,8 +1157,18 @@ async def cmd_fermentar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = update.effective_chat.id
     estado_usuario[chat_id] = {"paso": "fermentar_local"}
     await update.message.reply_text(
-        "🔥 *Fermentación*\n\n¿Qué local?",
+        "\U0001f525 *Fermentaci\u00f3n*\n\n\u00bfQu\u00e9 local?",
         reply_markup=_locales_kb("fermentar_local", include_cdp=False),
+        parse_mode="Markdown",
+    )
+
+
+async def cmd_ordenes(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    chat_id = update.effective_chat.id
+    estado_usuario[chat_id] = {"paso": "ordenes_local"}
+    await update.message.reply_text(
+        "\U0001f4cb *Ordenes del d\u00eda*\n\n\u00bfQu\u00e9 local?",
+        reply_markup=_locales_kb("ordenes_local", include_cdp=False),
         parse_mode="Markdown",
     )
 
@@ -891,11 +1179,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     chat_id = query.message.chat_id
     data = query.data
 
-    # ── MENU PRINCIPAL ────────────────────────────────────────────────
+    # -- MENU PRINCIPAL --------------------------------------------------------
     if data == "menu_enviar":
         estado_usuario[chat_id] = {"paso": "enviar_destino"}
         await query.edit_message_text(
-            "📦 *Nuevo envío*\n\n¿A dónde va?",
+            "\U0001f4e6 *Nuevo env\u00edo*\n\n\u00bfA d\u00f3nde va?",
             reply_markup=_locales_kb("enviar_dest"),
             parse_mode="Markdown",
         )
@@ -904,7 +1192,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "menu_recibir":
         estado_usuario[chat_id] = {"paso": "recibir_local"}
         await query.edit_message_text(
-            "📥 *Recibir envío*\n\n¿En qué local estás?",
+            "\U0001f4e5 *Recibir env\u00edo*\n\n\u00bfEn qu\u00e9 local est\u00e1s?",
             reply_markup=_locales_kb("recibir_local"),
             parse_mode="Markdown",
         )
@@ -913,7 +1201,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "menu_cargar":
         estado_usuario[chat_id] = {"paso": "cargar_local"}
         await query.edit_message_text(
-            "📝 *Cargar stock*\n\n¿Qué local?",
+            "\U0001f4dd *Cargar stock*\n\n\u00bfQu\u00e9 local?",
             reply_markup=_locales_kb("cargar_local", include_cdp=False),
             parse_mode="Markdown",
         )
@@ -922,8 +1210,17 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "menu_fermentar":
         estado_usuario[chat_id] = {"paso": "fermentar_local"}
         await query.edit_message_text(
-            "🔥 *Fermentación*\n\n¿Qué local?",
+            "\U0001f525 *Fermentaci\u00f3n*\n\n\u00bfQu\u00e9 local?",
             reply_markup=_locales_kb("fermentar_local", include_cdp=False),
+            parse_mode="Markdown",
+        )
+        return
+
+    if data == "menu_ordenes":
+        estado_usuario[chat_id] = {"paso": "ordenes_local"}
+        await query.edit_message_text(
+            "\U0001f4cb *Ordenes del d\u00eda*\n\n\u00bfQu\u00e9 local?",
+            reply_markup=_locales_kb("ordenes_local", include_cdp=False),
             parse_mode="Markdown",
         )
         return
@@ -931,7 +1228,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "menu_principal":
         estado_usuario.pop(chat_id, None)
         await query.edit_message_text(
-            "🥐 *Lharmonie*\n\n¿Qué hacemos?",
+            "\U0001f950 *Lharmonie*\n\n\u00bfQu\u00e9 hacemos?",
             reply_markup=_main_menu_kb(),
             parse_mode="Markdown",
         )
@@ -940,11 +1237,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data == "cancelar":
         estado_usuario.pop(chat_id, None)
         await query.edit_message_text(
-            "Cancelado. Mandá /start para volver al menú."
+            "Cancelado. Mand\u00e1 /start para volver al men\u00fa."
         )
         return
 
-    # ── FLUJO ENVIAR ──────────────────────────────────────────────────
+    # -- FLUJO ENVIAR ----------------------------------------------------------
     if data.startswith("enviar_dest_"):
         idx = int(data.split("_")[2])
         info = estado_usuario.get(chat_id, {})
@@ -952,8 +1249,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info["paso"] = "enviar_lista"
         estado_usuario[chat_id] = info
         await query.edit_message_text(
-            f"📦 Envío a *{local_corto(LOCALES[idx])}*\n\n"
-            f"Dale, mandá la lista\\. Ej:\n"
+            f"\U0001f4e6 Env\u00edo a *{local_corto(LOCALES[idx])}*\n\n"
+            f"Dale, mand\u00e1 la lista\\. Ej:\n"
             f"`medialunas 50, budines 20, cookies 15`",
             parse_mode="MarkdownV2",
         )
@@ -968,7 +1265,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                      for i, t in enumerate(TRANSPORTES)]
         keyboard.append([InlineKeyboardButton("Cancelar", callback_data="cancelar")])
         await query.edit_message_text(
-            "🚗 ¿Cómo se envía?",
+            "\U0001f697 \u00bfC\u00f3mo se env\u00eda?",
             reply_markup=InlineKeyboardMarkup(keyboard),
         )
         return
@@ -981,8 +1278,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info.pop("unidades_lista", None)
         estado_usuario[chat_id] = info
         await query.edit_message_text(
-            f"📦 Envío a *{local_corto(info.get('destino', '?'))}*\n\n"
-            f"Dale, mandá la lista de nuevo:",
+            f"\U0001f4e6 Env\u00edo a *{local_corto(info.get('destino', '?'))}*\n\n"
+            f"Dale, mand\u00e1 la lista de nuevo:",
             parse_mode="Markdown",
         )
         return
@@ -1005,7 +1302,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not ok:
             await query.edit_message_text(
                 f"Error guardando: {esc(error_msg or 'desconocido')}\n"
-                f"Intentá de nuevo con /start",
+                f"Intent\u00e1 de nuevo con /start",
                 parse_mode="Markdown",
             )
             estado_usuario.pop(chat_id, None)
@@ -1020,11 +1317,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resumen = "\n".join(lines)
 
         msg_notif = (
-            f"📦 *Nuevo envío*\n\n"
-            f"📍 CDP → *{local_corto(info['destino'])}*\n"
-            f"🚗 {info['transporte']}\n"
-            f"🕐 {info['hora']}\n\n"
-            f"📋 *Productos:*\n{resumen}"
+            f"\U0001f4e6 *Nuevo env\u00edo*\n\n"
+            f"\U0001f4cd CDP \u2192 *{local_corto(info['destino'])}*\n"
+            f"\U0001f697 {info['transporte']}\n"
+            f"\U0001f550 {info['hora']}\n\n"
+            f"\U0001f4cb *Productos:*\n{resumen}"
         )
         for cid in NOTIFY_IDS:
             try:
@@ -1035,18 +1332,18 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 pass
 
         await query.edit_message_text(
-            f"Listo, enviado a *{local_corto(info['destino'])}* 👍\n"
+            f"Listo, enviado a *{local_corto(info['destino'])}* \U0001f44d\n"
             f"{n_prods} productos registrados.",
             parse_mode="Markdown",
         )
         estado_usuario.pop(chat_id, None)
         return
 
-    # ── FLUJO RECIBIR ─────────────────────────────────────────────────
+    # -- FLUJO RECIBIR ---------------------------------------------------------
     if data.startswith("recibir_local_"):
         idx = int(data.split("_")[2])
         local = LOCALES[idx]
-        await query.edit_message_text("Buscando envíos pendientes...")
+        await query.edit_message_text("Buscando env\u00edos pendientes...")
 
         pendientes, error_msg = obtener_envios_pendientes(local)
         if error_msg:
@@ -1055,7 +1352,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         if not pendientes:
             await query.edit_message_text(
-                f"No hay envíos pendientes para *{local_corto(local)}* 👍",
+                f"No hay env\u00edos pendientes para *{local_corto(local)}* \U0001f44d",
                 parse_mode="Markdown",
             )
             estado_usuario.pop(chat_id, None)
@@ -1069,11 +1366,11 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         keyboard = []
         for i, env in enumerate(pendientes):
             n_prods = len(_split_multi(env["productos"])) if env["productos"] else 0
-            label = f"{env['fecha']} {env['hora']} — {local_corto(env['origen'])} ({n_prods} prod)"
+            label = f"{env['fecha']} {env['hora']} \u2014 {local_corto(env['origen'])} ({n_prods} prod)"
             keyboard.append([InlineKeyboardButton(label, callback_data=f"recibir_env_{i}")])
         keyboard.append([InlineKeyboardButton("Cancelar", callback_data="cancelar")])
         await query.edit_message_text(
-            f"📥 Envíos pendientes para *{local_corto(local)}*:",
+            f"\U0001f4e5 Env\u00edos pendientes para *{local_corto(local)}*:",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown",
         )
@@ -1099,10 +1396,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         resumen = "\n".join(lines)
 
         await query.edit_message_text(
-            f"📥 *Envío de {local_corto(env['origen'])}*\n"
+            f"\U0001f4e5 *Env\u00edo de {local_corto(env['origen'])}*\n"
             f"{env['fecha']} {env['hora']}\n\n"
-            f"📋 *Productos:*\n{resumen}\n\n"
-            f"👤 Escribí tu nombre:",
+            f"\U0001f4cb *Productos:*\n{resumen}\n\n"
+            f"\U0001f464 Escrib\u00ed tu nombre:",
             parse_mode="Markdown",
         )
         return
@@ -1127,10 +1424,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log.error(f"Error stock al recibir: {se}")
 
         msg_notif = (
-            f"✅ *Envío recibido*\n\n"
-            f"📍 {local_corto(env.get('origen', '?'))} → {local_corto(env.get('destino', '?'))}\n"
-            f"👤 {esc(resp)}\n"
-            f"⏱ {tiempo}\n"
+            f"\u2705 *Env\u00edo recibido*\n\n"
+            f"\U0001f4cd {local_corto(env.get('origen', '?'))} \u2192 {local_corto(env.get('destino', '?'))}\n"
+            f"\U0001f464 {esc(resp)}\n"
+            f"\u23f1 {tiempo}\n"
             f"Todo OK"
         )
         for cid in NOTIFY_IDS:
@@ -1138,7 +1435,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 await context.bot.send_message(chat_id=cid, text=msg_notif, parse_mode="Markdown")
             except Exception:
                 pass
-        await query.edit_message_text(f"Recibido, todo OK 👍\nTiempo: {tiempo}")
+        await query.edit_message_text(f"Recibido, todo OK \U0001f44d\nTiempo: {tiempo}")
         estado_usuario.pop(chat_id, None)
         return
 
@@ -1146,10 +1443,10 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info = estado_usuario.get(chat_id, {})
         info["paso"] = "recibir_diferencias"
         estado_usuario[chat_id] = info
-        await query.edit_message_text("Decime qué falta:")
+        await query.edit_message_text("Decime qu\u00e9 falta:")
         return
 
-    # ── FLUJO CARGAR STOCK ────────────────────────────────────────────
+    # -- FLUJO CARGAR STOCK ----------------------------------------------------
     if data.startswith("cargar_local_"):
         idx = int(data.split("_")[2])
         local = LOCALES_RETAIL[idx]
@@ -1161,7 +1458,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
                      for i, z in enumerate(ZONAS)]
         keyboard.append([InlineKeyboardButton("Cancelar", callback_data="cancelar")])
         await query.edit_message_text(
-            f"📝 *{local_corto(local)}*\n\n¿Qué zona?",
+            f"\U0001f4dd *{local_corto(local)}*\n\n\u00bfQu\u00e9 zona?",
             reply_markup=InlineKeyboardMarkup(keyboard),
             parse_mode="Markdown",
         )
@@ -1170,18 +1467,26 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("cargar_zona_"):
         idx = int(data.split("_")[2])
         info = estado_usuario.get(chat_id, {})
-        info["cargar_zona"] = ZONAS[idx]
+        zona = ZONAS[idx]
+        info["cargar_zona"] = zona
         info["paso"] = "cargar_lista"
         estado_usuario[chat_id] = info
+
+        # Send checklist first, then ask for input
+        checklist = _build_zone_checklist(info["cargar_local"], zona)
+        # Send checklist as a separate message (not editable)
+        await query.message.reply_text(checklist)
+
+        # Edit original message to input prompt
         await query.edit_message_text(
-            f"📝 *{local_corto(info['cargar_local'])}* — {ZONAS[idx]}\n\n"
-            f"Mandá lo que tenés\\. Ej:\n"
+            f"\U0001f4dd *{local_corto(info['cargar_local'])}* \u2014 {zona}\n\n"
+            f"Mand\u00e1 lo que ten\u00e9s\\. Ej:\n"
             f"`medialunas 30, budines 10`",
             parse_mode="MarkdownV2",
         )
         return
 
-    # ── FLUJO FERMENTACIÓN ────────────────────────────────────────────
+    # -- FLUJO FERMENTACION ----------------------------------------------------
     if data.startswith("fermentar_local_"):
         idx = int(data.split("_")[2])
         local = LOCALES_RETAIL[idx]
@@ -1190,16 +1495,36 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info["paso"] = "fermentar_lista"
         estado_usuario[chat_id] = info
         await query.edit_message_text(
-            f"🔥 *{local_corto(local)}*\n\n"
-            f"¿Qué sacaste a fermentar? Ej:\n"
+            f"\U0001f525 *{local_corto(local)}*\n\n"
+            f"\u00bfQu\u00e9 sacaste a fermentar? Ej:\n"
             f"`medialunas 100, croissants 50`",
             parse_mode="MarkdownV2",
         )
         return
 
-    # ── FALLBACK: estado perdido ──────────────────────────────────────
+    # -- FLUJO ORDENES DEL DIA -------------------------------------------------
+    if data.startswith("ordenes_local_"):
+        idx = int(data.split("_")[2])
+        local = LOCALES_RETAIL[idx]
+        await query.edit_message_text("Calculando \u00f3rdenes...")
+
+        try:
+            msg = _generar_ordenes(local)
+        except Exception as e:
+            log.error(f"Error generando \u00f3rdenes: {e}")
+            msg = f"Error generando \u00f3rdenes: {e}"
+
+        # Send and go back to menu
+        kb = InlineKeyboardMarkup([
+            [InlineKeyboardButton("\u2b05 Volver al men\u00fa", callback_data="menu_principal")]
+        ])
+        await query.edit_message_text(msg, reply_markup=kb, parse_mode="Markdown")
+        estado_usuario.pop(chat_id, None)
+        return
+
+    # -- FALLBACK: estado perdido ----------------------------------------------
     await query.edit_message_text(
-        "Se perdió la sesión. Mandá /start para empezar de nuevo.",
+        "Se perdi\u00f3 la sesi\u00f3n. Mand\u00e1 /start para empezar de nuevo.",
     )
     estado_usuario.pop(chat_id, None)
 
@@ -1210,7 +1535,7 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if chat_id not in estado_usuario:
         await update.message.reply_text(
-            "🥐 *Lharmonie*\n\n¿Qué hacemos?",
+            "\U0001f950 *Lharmonie*\n\n\u00bfQu\u00e9 hacemos?",
             reply_markup=_main_menu_kb(),
             parse_mode="Markdown",
         )
@@ -1219,12 +1544,12 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
     info = estado_usuario[chat_id]
     paso = info.get("paso", "")
 
-    # ── ENVIAR: lista de productos ────────────────────────────────────
+    # -- ENVIAR: lista de productos --------------------------------------------
     if paso == "enviar_lista":
         prods, cants, units, resumen = _procesar_lista_texto(texto)
         if not prods:
             await update.message.reply_text(
-                "No entendí ningún producto. Mandá algo como:\n"
+                "No entend\u00ed ning\u00fan producto. Mand\u00e1 algo como:\n"
                 "`medialunas 50, budines 20`",
                 parse_mode="Markdown",
             )
@@ -1237,38 +1562,38 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("✅ Listo", callback_data="enviar_confirmar"),
-                InlineKeyboardButton("✏️ Corregir", callback_data="enviar_corregir"),
+                InlineKeyboardButton("\u2705 Listo", callback_data="enviar_confirmar"),
+                InlineKeyboardButton("\u270f\ufe0f Corregir", callback_data="enviar_corregir"),
             ],
         ])
         await update.message.reply_text(
-            f"📦 *{local_corto(info['destino'])}*\n\n"
+            f"\U0001f4e6 *{local_corto(info['destino'])}*\n\n"
             f"{resumen}\n\n"
-            f"¿Está bien?",
+            f"\u00bfEst\u00e1 bien?",
             reply_markup=keyboard,
             parse_mode="Markdown",
         )
         return
 
-    # ── RECIBIR: nombre ───────────────────────────────────────────────
+    # -- RECIBIR: nombre -------------------------------------------------------
     if paso == "recibir_nombre":
         info["nombre_recibir"] = texto
         info["paso"] = "recibir_ok_o_falta"
         estado_usuario[chat_id] = info
         keyboard = InlineKeyboardMarkup([
             [
-                InlineKeyboardButton("✅ Todo OK", callback_data="recibir_todo_ok"),
-                InlineKeyboardButton("⚠️ Falta algo", callback_data="recibir_falta"),
+                InlineKeyboardButton("\u2705 Todo OK", callback_data="recibir_todo_ok"),
+                InlineKeyboardButton("\u26a0\ufe0f Falta algo", callback_data="recibir_falta"),
             ],
         ])
         await update.message.reply_text(
-            f"👤 {esc(texto)}\n\n¿Llegó todo bien?",
+            f"\U0001f464 {esc(texto)}\n\n\u00bfLleg\u00f3 todo bien?",
             reply_markup=keyboard,
             parse_mode="Markdown",
         )
         return
 
-    # ── RECIBIR: diferencias ──────────────────────────────────────────
+    # -- RECIBIR: diferencias --------------------------------------------------
     if paso == "recibir_diferencias":
         env = info.get("envio_a_recibir", {})
         resp = info.get("nombre_recibir", "")
@@ -1288,26 +1613,26 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
             log.error(f"Error stock recibir con diff: {se}")
 
         msg_notif = (
-            f"⚠️ *Envío con diferencias*\n\n"
-            f"📍 {local_corto(env.get('origen', '?'))} → {local_corto(env.get('destino', '?'))}\n"
-            f"👤 {esc(resp)}\n"
-            f"📝 {esc(texto)}"
+            f"\u26a0\ufe0f *Env\u00edo con diferencias*\n\n"
+            f"\U0001f4cd {local_corto(env.get('origen', '?'))} \u2192 {local_corto(env.get('destino', '?'))}\n"
+            f"\U0001f464 {esc(resp)}\n"
+            f"\U0001f4dd {esc(texto)}"
         )
         for cid in NOTIFY_IDS:
             try:
                 await context.bot.send_message(chat_id=cid, text=msg_notif, parse_mode="Markdown")
             except Exception:
                 pass
-        await update.message.reply_text("Anotado, el equipo fue notificado 👍")
+        await update.message.reply_text("Anotado, el equipo fue notificado \U0001f44d")
         estado_usuario.pop(chat_id, None)
         return
 
-    # ── CARGAR STOCK: lista ───────────────────────────────────────────
+    # -- CARGAR STOCK: lista ---------------------------------------------------
     if paso == "cargar_lista":
         prods, cants, units, resumen = _procesar_lista_texto(texto)
         if not prods:
             await update.message.reply_text(
-                "No entendí. Mandá algo como:\n`medialunas 30, budines 10`",
+                "No entend\u00ed. Mand\u00e1 algo como:\n`medialunas 30, budines 10`",
                 parse_mode="Markdown",
             )
             return
@@ -1324,16 +1649,22 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 return
             _ensure_stock_tabs(sh)
 
+            # Determine stock state based on zone
+            obs_zona = f"carga stock {zona.lower()}"
+            if zona.lower() == "mostrador":
+                obs_zona = "carga stock mostrador horneado"
+            elif zona.lower() == "barra":
+                obs_zona = "carga stock barra horneado"
+
             errores = 0
             for j, prod in enumerate(prods):
                 cant = _safe_int(cants[j] if j < len(cants) else "0")
                 if cant <= 0:
                     continue
-                # Cargar stock = ajuste: setea el valor exacto como congelado
                 ok, msg = stock_apply_movement(
                     sh, local, prod, TIPO_AJUSTE, cant,
                     zona=zona, responsable="",
-                    chat_id=chat_id, observaciones=f"carga stock {zona.lower()}",
+                    chat_id=chat_id, observaciones=obs_zona,
                 )
                 if not ok:
                     errores += 1
@@ -1343,10 +1674,10 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if errores:
                 await update.message.reply_text(
                     f"Listo, pero hubo {errores} error(es). "
-                    f"Revisá el Sheet."
+                    f"Revis\u00e1 el Sheet."
                 )
             else:
-                await update.message.reply_text("Listo, cargado 👍")
+                await update.message.reply_text("Listo, cargado \U0001f44d")
         except Exception as e:
             log.error(f"Error cargar stock: {e}")
             await update.message.reply_text(f"Error: {esc(str(e))}", parse_mode="Markdown")
@@ -1354,12 +1685,12 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
         estado_usuario.pop(chat_id, None)
         return
 
-    # ── FERMENTACIÓN: lista ───────────────────────────────────────────
+    # -- FERMENTACION: lista ---------------------------------------------------
     if paso == "fermentar_lista":
         prods, cants, units, resumen = _procesar_lista_texto(texto)
         if not prods:
             await update.message.reply_text(
-                "No entendí. Mandá algo como:\n`medialunas 100, croissants 50`",
+                "No entend\u00ed. Mand\u00e1 algo como:\n`medialunas 100, croissants 50`",
                 parse_mode="Markdown",
             )
             return
@@ -1383,42 +1714,42 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 ok, msg = stock_apply_movement(
                     sh, local, prod, TIPO_FERMENTO, cant,
                     zona="Cocina", responsable="",
-                    chat_id=chat_id, observaciones="fermentación",
+                    chat_id=chat_id, observaciones="fermentaci\u00f3n",
                 )
                 if not ok:
                     errores += 1
-                    log.warning(f"Error fermentación {prod}: {msg}")
+                    log.warning(f"Error fermentaci\u00f3n {prod}: {msg}")
                 _time.sleep(1)
 
             if errores:
                 await update.message.reply_text(
                     f"Anotado, pero hubo {errores} error(es). "
-                    f"Revisá el Sheet."
+                    f"Revis\u00e1 el Sheet."
                 )
             else:
-                await update.message.reply_text("Anotado 👍")
+                await update.message.reply_text("Anotado \U0001f44d")
         except Exception as e:
-            log.error(f"Error fermentación: {e}")
+            log.error(f"Error fermentaci\u00f3n: {e}")
             await update.message.reply_text(f"Error: {esc(str(e))}", parse_mode="Markdown")
 
         estado_usuario.pop(chat_id, None)
         return
 
-    # ── FALLBACK ──────────────────────────────────────────────────────
+    # -- FALLBACK --------------------------------------------------------------
     await update.message.reply_text(
-        "No entendí. Mandá /start para volver al menú."
+        "No entend\u00ed. Mand\u00e1 /start para volver al men\u00fa."
     )
     estado_usuario.pop(chat_id, None)
 
 
-# ── ERROR HANDLER ─────────────────────────────────────────────────────────────
+# -- ERROR HANDLER -------------------------------------------------------------
 async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     log.error(f"Error no atrapado: {context.error}", exc_info=context.error)
     try:
         if update and update.effective_chat:
             chat_id = update.effective_chat.id
             estado_usuario.pop(chat_id, None)
-            msg = "Hubo un error. Mandá /start para empezar de nuevo."
+            msg = "Hubo un error. Mand\u00e1 /start para empezar de nuevo."
             if update.callback_query:
                 await update.callback_query.message.reply_text(msg)
             elif update.message:
@@ -1427,12 +1758,12 @@ async def error_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         log.error(f"Error en error_handler: {e}")
 
 
-# ── MAIN ──────────────────────────────────────────────────────────────────────
+# -- MAIN ----------------------------------------------------------------------
 def main():
     if not TELEGRAM_TOKEN:
         print("Falta ENVIOS_TELEGRAM_TOKEN")
         return
-    print("Iniciando Bot Envíos Lharmonie...")
+    print("Iniciando Bot Envios Lharmonie v3...")
     app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
 
     app.add_handler(CommandHandler("start", cmd_start))
@@ -1440,12 +1771,13 @@ def main():
     app.add_handler(CommandHandler("recibir", cmd_recibir))
     app.add_handler(CommandHandler("cargar", cmd_cargar))
     app.add_handler(CommandHandler("fermentar", cmd_fermentar))
+    app.add_handler(CommandHandler("ordenes", cmd_ordenes))
 
     app.add_handler(CallbackQueryHandler(callback_handler))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_texto))
 
     app.add_error_handler(error_handler)
-    print("Bot Envíos corriendo.")
+    print("Bot Envios corriendo.")
     app.run_polling(drop_pending_updates=True)
 
 
