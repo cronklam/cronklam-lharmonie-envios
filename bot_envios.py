@@ -116,53 +116,191 @@ def get_stock_sheet():
 
 
 # ── PRODUCTOS ─────────────────────────────────────────────────────────────────
-CATALOG_VERSION = "2026-04-17-v2"  # Bump this to force re-sync of product catalog
+CATALOG_VERSION = "2026-04-17-v3"  # Bump this to force re-sync of product catalog
+
+# In-memory product cache to avoid hitting Sheets API every interaction
+_product_cache = {"productos": {}, "unidades": {}, "zonas": {}, "ts": 0}
+_PRODUCT_CACHE_TTL = 600  # 10 minutes
+
+# Hardcoded product list — FALLBACK when Sheets is unreachable.
+# Source: Google Forms (Cocina + Mostrador + Barra). 17 abril 2026.
+_HARDCODED_PRODUCTS = [
+    # ── MOSTRADOR (del form "LH {LOCAL} - MOSTRADOR") ──
+    ("Pastelería", "Alfajor de nuez", "u", "Mostrador"),
+    ("Pastelería", "Alfajor de chocolate", "u", "Mostrador"),
+    ("Pastelería", "Alfajor de pistacho", "u", "Mostrador"),
+    ("Pastelería", "Cookie nuez", "u", "Mostrador"),
+    ("Pastelería", "Cookie melu", "u", "Mostrador"),
+    ("Pastelería", "Cookie red velvet", "u", "Mostrador"),
+    ("Pastelería", "Cookie chocolate simple", "u", "Mostrador"),
+    ("Pastelería", "Cookie de mani", "u", "Mostrador"),
+    ("Pastelería", "Brownie", "u", "Mostrador"),
+    ("Pastelería", "Cuadrado de coco", "u", "Mostrador"),
+    ("Pastelería", "Muffin", "u", "Mostrador"),
+    ("Pastelería", "Barritas proteína", "u", "Mostrador"),
+    ("Pastelería", "Porción de dátiles", "u", "Mostrador"),
+    ("Pastelería", "Brioche de pastelera", "u", "Mostrador"),
+    ("Pastelería", "Tarteleta", "u", "Mostrador"),
+    # ── COCINA (del form "LH {LOCAL} - STOCK COCINA") ──
+    ("Elaborados", "Tarta del día", "u", "Cocina"),
+    ("Elaborados", "Pan masa madre con semillas", "u", "Cocina"),
+    ("Elaborados", "Pan brioche", "u", "Cocina"),
+    ("Elaborados", "Pan brioche cuadrado", "u", "Cocina"),
+    ("Elaborados", "Pain au choco", "u", "Cocina"),
+    ("Elaborados", "Bavka pistacho", "u", "Cocina"),
+    ("Elaborados", "Bavka de chocolate", "u", "Cocina"),
+    ("Elaborados", "Pan suisse", "u", "Cocina"),
+    ("Elaborados", "Roll de maní", "u", "Cocina"),
+    ("Elaborados", "Roll canela", "u", "Cocina"),
+    ("Elaborados", "Medialunas", "u", "Cocina"),
+    ("Elaborados", "Croissant", "u", "Cocina"),
+    ("Elaborados", "Chipa", "u", "Cocina"),
+    ("Elaborados", "Chipa prensado", "u", "Cocina"),
+    ("Elaborados", "Palmeras", "u", "Cocina"),
+    ("Elaborados", "Palitos de queso", "u", "Cocina"),
+    ("Varios", "Pasta de pistacho", "kg", "Cocina"),
+    ("Varios", "Pistacho procesado", "kg", "Cocina"),
+    ("Varios", "Frangipane", "kg", "Cocina"),
+    ("Varios", "Dulce de leche", "kg", "Cocina"),
+    ("Varios", "Mermelada", "kg", "Cocina"),
+    ("Varios", "Mermelada de frambuesa", "kg", "Cocina"),
+    ("Varios", "Bariloche", "kg", "Cocina"),
+    ("Varios", "Maní salado", "kg", "Cocina"),
+    ("Varios", "Frosting de queso", "kg", "Cocina"),
+    ("Varios", "Queso crema", "kg", "Cocina"),
+    ("Varios", "Azucar", "kg", "Cocina"),
+    ("Varios", "Azucar impalpable", "kg", "Cocina"),
+    ("Varios", "Granola", "kg", "Cocina, Barra"),
+    ("Varios", "Pasta de atún", "kg", "Cocina"),
+    ("Varios", "Pesto", "kg", "Cocina"),
+    ("Varios", "Salsa holandesa", "kg", "Cocina"),
+    ("Varios", "Manteca común", "kg", "Cocina"),
+    ("Varios", "Manteca saborizada", "kg", "Cocina"),
+    ("Varios", "Aderezo cesar", "kg", "Cocina"),
+    ("Varios", "Hongos cocidos", "kg", "Cocina"),
+    ("Varios", "Wraps", "u", "Cocina"),
+    ("Varios", "Papas gauchitas", "paq", "Cocina"),
+    ("Varios", "Almendras", "kg", "Cocina"),
+    ("Varios", "Almendras fileteadas", "kg", "Cocina"),
+    ("Varios", "Picle de pepino redondo", "kg", "Cocina"),
+    ("Varios", "Quinoa crocante", "kg", "Cocina"),
+    ("Varios", "Quinoa cocida", "kg", "Cocina"),
+    ("Varios", "Arroz yamani cocido", "kg", "Cocina"),
+    ("Varios", "Arroz yamani crudo", "kg", "Cocina"),
+    ("Varios", "Atún", "kg", "Cocina"),
+    ("Varios", "Queso sardo", "kg", "Cocina"),
+    ("Varios", "Queso tybo", "kg", "Cocina"),
+    ("Varios", "Porción de trucha", "kg", "Cocina"),
+    ("Varios", "Miel", "kg", "Cocina, Barra"),
+    ("Varios", "Aceite de oliva Zuelo", "lt", "Cocina"),
+    ("Varios", "Vinagre blanco", "lt", "Cocina"),
+    ("Varios", "Siracha", "kg", "Cocina"),
+    ("Varios", "Sal", "kg", "Cocina"),
+    # ── BARRA (del form "Stock Café y barra") ──
+    ("Barra", "Café de tolva", "kg", "Barra"),
+    ("Barra", "Paquete 1/4 Café Jairo", "u", "Barra"),
+    ("Barra", "Paquete 1/4 Café Luis", "u", "Barra"),
+    ("Barra", "Paquete 1/4 Café Samba Brasil", "u", "Barra"),
+    ("Barra", "Paquete 1/4 Café Trailblazer Brasil", "u", "Barra"),
+    ("Barra", "Paquete 1/4 Café Cumbia", "u", "Barra"),
+    ("Barra", "Receta leche casera", "u", "Barra"),
+    ("Barra", "Matcha", "u", "Barra"),
+    ("Barra", "Hibiscus", "u", "Barra"),
+    ("Barra", "Curcuma", "u", "Barra"),
+    ("Barra", "Frutilla congelada", "u", "Barra"),
+    ("Barra", "Arandanos congelados", "u", "Barra"),
+    ("Barra", "Té Grey", "u", "Barra"),
+    ("Barra", "Té Royal frut", "u", "Barra"),
+    ("Barra", "Té breakfast", "u", "Barra"),
+    ("Barra", "Té Berrys", "u", "Barra"),
+]
+
+
+def _parse_product_list(product_tuples: list) -> tuple:
+    """Parse a list of (cat, prod, unidad, zona) tuples into dicts."""
+    productos = {}
+    unidades = {}
+    zonas = {}
+    for cat, prod, unidad, zona_raw in product_tuples:
+        if cat not in productos:
+            productos[cat] = []
+        productos[cat].append(prod)
+        unidades[prod] = unidad or "u"
+        if zona_raw:
+            zonas[prod] = [z.strip() for z in zona_raw.split(",") if z.strip()]
+        else:
+            zonas[prod] = ["Cocina", "Mostrador", "Barra"]
+    return productos, unidades, zonas
 
 
 def cargar_productos() -> tuple:
     """
     Lee la pestana 'Productos Envio' del Sheet.
-    Retorna (dict categorias, dict unidades, dict zonas):
-      - categorias: {categoria: [producto1, producto2, ...]}
-      - unidades:   {producto: "u"|"kg"|"lt"|"g"|...}
-      - zonas:      {producto: ["Cocina", "Mostrador", ...]}
-    Si la version del catalogo cambio, borra y recrea la pestana.
+    Retorna (dict categorias, dict unidades, dict zonas).
+    Uses in-memory cache (10min). Falls back to hardcoded products
+    if Sheets is unreachable.
     """
+    # Check cache first
+    now = _time.time()
+    if _product_cache["productos"] and (now - _product_cache["ts"]) < _PRODUCT_CACHE_TTL:
+        return _product_cache["productos"], _product_cache["unidades"], _product_cache["zonas"]
+
     try:
         gc, sh = get_sheets_client()
         if not sh:
-            return {}, {}, {}
-        # Find existing worksheet (with or without accent)
-        ws = None
-        for tab_name in ["Productos Envío", "Productos Envio"]:
-            try:
-                ws = sh.worksheet(tab_name)
-                break
-            except:
-                continue
+            raise RuntimeError("No sheets client")
 
+        # Find ALL matching worksheets (handle duplicates from failed deletes)
+        ws_accented = None
+        ws_plain = None
+        for w in sh.worksheets():
+            title = w.title
+            if title == "Productos Envío":
+                ws_accented = w
+            elif title == "Productos Envio":
+                ws_plain = w
+
+        # Prefer the plain (non-accented) tab — it's the one our code creates
+        ws = ws_plain or ws_accented
         need_create = False
+
         if ws:
             try:
                 version_cell = ws.acell("F1").value or ""
-            except:
+            except Exception:
                 version_cell = ""
             if version_cell != CATALOG_VERSION:
                 log.info(f"Catalogo desactualizado ({version_cell!r} vs {CATALOG_VERSION}). Recreando...")
-                try:
-                    sh.del_worksheet(ws)
-                    _time.sleep(2)
-                except Exception as del_err:
-                    log.warning(f"No se pudo borrar pestana productos: {del_err}")
+                # Delete ALL product tabs (both accented and plain)
+                for old_ws in [ws_accented, ws_plain]:
+                    if old_ws:
+                        try:
+                            sh.del_worksheet(old_ws)
+                            log.info(f"Borrada pestana '{old_ws.title}'")
+                            _time.sleep(1)
+                        except Exception as del_err:
+                            log.warning(f"No se pudo borrar '{old_ws.title}': {del_err}")
                 need_create = True
         else:
             need_create = True
 
         if need_create:
+            # Double-check no tab exists before creating (avoid duplicates)
+            existing_titles = [w.title for w in sh.worksheets()]
+            for old_name in ["Productos Envío", "Productos Envio"]:
+                if old_name in existing_titles:
+                    try:
+                        old_w = sh.worksheet(old_name)
+                        sh.del_worksheet(old_w)
+                        log.info(f"Limpieza: borrada '{old_name}' residual")
+                        _time.sleep(1)
+                    except Exception:
+                        pass
             ws = sh.add_worksheet("Productos Envio", rows=200, cols=6)
             ws.append_row(["Categoria", "Producto", "Unidad", "Zona", "", CATALOG_VERSION])
             _crear_productos_iniciales(ws)
             _time.sleep(2)
+
         vals = ws.get_all_values()
         header_idx = 0
         for i, row in enumerate(vals):
@@ -184,16 +322,29 @@ def cargar_productos() -> tuple:
                     productos[cat] = []
                 productos[cat].append(prod)
                 unidades[prod] = unidad or "u"
-                # Parse zones: comma-separated or default to all
                 if zona_raw:
                     zonas[prod] = [z.strip() for z in zona_raw.split(",") if z.strip()]
                 else:
                     zonas[prod] = ["Cocina", "Mostrador", "Barra"]
-        log.info(f"Productos cargados: {sum(len(v) for v in productos.values())} en {len(productos)} categorias")
+        total = sum(len(v) for v in productos.values())
+        log.info(f"Productos cargados desde Sheet: {total} en {len(productos)} categorias")
+
+        # Validate: if Sheet returned 0 products, something is wrong — use fallback
+        if total == 0:
+            log.warning("Sheet devolvio 0 productos — usando fallback hardcoded")
+            productos, unidades, zonas = _parse_product_list(_HARDCODED_PRODUCTS)
+
+        # Update cache
+        _product_cache.update({"productos": productos, "unidades": unidades, "zonas": zonas, "ts": _time.time()})
         return productos, unidades, zonas
+
     except Exception as e:
-        log.error(f"Error cargando productos: {e}")
-        return {}, {}, {}
+        log.error(f"Error cargando productos desde Sheet: {e}")
+        # Fallback: use hardcoded products so the bot keeps working
+        log.info("Usando catalogo hardcoded como fallback")
+        productos, unidades, zonas = _parse_product_list(_HARDCODED_PRODUCTS)
+        _product_cache.update({"productos": productos, "unidades": unidades, "zonas": zonas, "ts": _time.time()})
+        return productos, unidades, zonas
 
 
 def _crear_productos_iniciales(ws):
@@ -203,100 +354,7 @@ def _crear_productos_iniciales(ws):
     actualizar tambien los forms y viceversa.
     Ultima sync: 17 abril 2026.
     """
-    productos = [
-        # ── MOSTRADOR (del form "LH {LOCAL} - MOSTRADOR") ──
-        ("Pastelería", "Alfajor de nuez", "u", "Mostrador"),
-        ("Pastelería", "Alfajor de chocolate", "u", "Mostrador"),
-        ("Pastelería", "Alfajor de pistacho", "u", "Mostrador"),
-        ("Pastelería", "Cookie nuez", "u", "Mostrador"),
-        ("Pastelería", "Cookie melu", "u", "Mostrador"),
-        ("Pastelería", "Cookie red velvet", "u", "Mostrador"),
-        ("Pastelería", "Cookie chocolate simple", "u", "Mostrador"),
-        ("Pastelería", "Cookie de mani", "u", "Mostrador"),
-        ("Pastelería", "Brownie", "u", "Mostrador"),
-        ("Pastelería", "Cuadrado de coco", "u", "Mostrador"),
-        ("Pastelería", "Muffin", "u", "Mostrador"),
-        ("Pastelería", "Barritas proteína", "u", "Mostrador"),
-        ("Pastelería", "Porción de dátiles", "u", "Mostrador"),
-        ("Pastelería", "Brioche de pastelera", "u", "Mostrador"),
-        ("Pastelería", "Tarteleta", "u", "Mostrador"),
-        # ── COCINA (del form "LH {LOCAL} - STOCK COCINA") ──
-        # Panes y elaborados (unidades)
-        ("Elaborados", "Tarta del día", "u", "Cocina"),
-        ("Elaborados", "Pan masa madre con semillas", "u", "Cocina"),
-        ("Elaborados", "Pan brioche", "u", "Cocina"),
-        ("Elaborados", "Pan brioche cuadrado", "u", "Cocina"),
-        # Congelados (unidades)
-        ("Elaborados", "Pain au choco", "u", "Cocina"),
-        ("Elaborados", "Bavka pistacho", "u", "Cocina"),
-        ("Elaborados", "Bavka de chocolate", "u", "Cocina"),
-        ("Elaborados", "Pan suisse", "u", "Cocina"),
-        ("Elaborados", "Roll de maní", "u", "Cocina"),
-        ("Elaborados", "Roll canela", "u", "Cocina"),
-        ("Elaborados", "Medialunas", "u", "Cocina"),
-        ("Elaborados", "Croissant", "u", "Cocina"),
-        ("Elaborados", "Chipa", "u", "Cocina"),
-        ("Elaborados", "Chipa prensado", "u", "Cocina"),
-        ("Elaborados", "Palmeras", "u", "Cocina"),
-        ("Elaborados", "Palitos de queso", "u", "Cocina"),
-        # Insumos kilogramos
-        ("Varios", "Pasta de pistacho", "kg", "Cocina"),
-        ("Varios", "Pistacho procesado", "kg", "Cocina"),
-        ("Varios", "Frangipane", "kg", "Cocina"),
-        ("Varios", "Dulce de leche", "kg", "Cocina"),
-        ("Varios", "Mermelada", "kg", "Cocina"),
-        ("Varios", "Mermelada de frambuesa", "kg", "Cocina"),
-        ("Varios", "Bariloche", "kg", "Cocina"),
-        ("Varios", "Maní salado", "kg", "Cocina"),
-        ("Varios", "Frosting de queso", "kg", "Cocina"),
-        ("Varios", "Queso crema", "kg", "Cocina"),
-        ("Varios", "Azucar", "kg", "Cocina"),
-        ("Varios", "Azucar impalpable", "kg", "Cocina"),
-        ("Varios", "Granola", "kg", "Cocina, Barra"),
-        ("Varios", "Pasta de atún", "kg", "Cocina"),
-        ("Varios", "Pesto", "kg", "Cocina"),
-        ("Varios", "Salsa holandesa", "kg", "Cocina"),
-        ("Varios", "Manteca común", "kg", "Cocina"),
-        ("Varios", "Manteca saborizada", "kg", "Cocina"),
-        ("Varios", "Aderezo cesar", "kg", "Cocina"),
-        ("Varios", "Hongos cocidos", "kg", "Cocina"),
-        ("Varios", "Wraps", "u", "Cocina"),
-        ("Varios", "Papas gauchitas", "paq", "Cocina"),
-        ("Varios", "Almendras", "kg", "Cocina"),
-        ("Varios", "Almendras fileteadas", "kg", "Cocina"),
-        ("Varios", "Picle de pepino redondo", "kg", "Cocina"),
-        ("Varios", "Quinoa crocante", "kg", "Cocina"),
-        ("Varios", "Quinoa cocida", "kg", "Cocina"),
-        ("Varios", "Arroz yamani cocido", "kg", "Cocina"),
-        ("Varios", "Arroz yamani crudo", "kg", "Cocina"),
-        ("Varios", "Atún", "kg", "Cocina"),
-        ("Varios", "Queso sardo", "kg", "Cocina"),
-        ("Varios", "Queso tybo", "kg", "Cocina"),
-        ("Varios", "Porción de trucha", "kg", "Cocina"),
-        ("Varios", "Miel", "kg", "Cocina, Barra"),
-        ("Varios", "Aceite de oliva Zuelo", "lt", "Cocina"),
-        ("Varios", "Vinagre blanco", "lt", "Cocina"),
-        ("Varios", "Siracha", "kg", "Cocina"),
-        ("Varios", "Sal", "kg", "Cocina"),
-        # ── BARRA (del form "Stock Café y barra") ──
-        ("Barra", "Café de tolva", "kg", "Barra"),
-        ("Barra", "Paquete 1/4 Café Jairo", "u", "Barra"),
-        ("Barra", "Paquete 1/4 Café Luis", "u", "Barra"),
-        ("Barra", "Paquete 1/4 Café Samba Brasil", "u", "Barra"),
-        ("Barra", "Paquete 1/4 Café Trailblazer Brasil", "u", "Barra"),
-        ("Barra", "Paquete 1/4 Café Cumbia", "u", "Barra"),
-        ("Barra", "Receta leche casera", "u", "Barra"),
-        ("Barra", "Matcha", "u", "Barra"),
-        ("Barra", "Hibiscus", "u", "Barra"),
-        ("Barra", "Curcuma", "u", "Barra"),
-        ("Barra", "Frutilla congelada", "u", "Barra"),
-        ("Barra", "Arandanos congelados", "u", "Barra"),
-        ("Barra", "Té Grey", "u", "Barra"),
-        ("Barra", "Té Royal frut", "u", "Barra"),
-        ("Barra", "Té breakfast", "u", "Barra"),
-        ("Barra", "Té Berrys", "u", "Barra"),
-    ]
-    rows = [[cat, prod, unidad, zona] for cat, prod, unidad, zona in productos]
+    rows = [[cat, prod, unidad, zona] for cat, prod, unidad, zona in _HARDCODED_PRODUCTS]
     ws.append_rows(rows)
     log.info(f"Catalogo inicial creado: {len(rows)} productos")
 
@@ -310,6 +368,8 @@ def _get_products_for_zone(zona: str) -> list:
             prod_zones = zonas.get(prod, [])
             if zona in prod_zones:
                 result.append(prod)
+    if not result:
+        log.warning(f"_get_products_for_zone({zona!r}): 0 productos. Cache: {len(zonas)} items en zonas dict")
     return sorted(result)
 
 
@@ -1095,14 +1155,18 @@ def agregar_producto_nuevo(nombre: str, categoria: str = "Varios", unidad: str =
         gc, sh = get_sheets_client()
         if not sh:
             return
-        try:
-            ws = sh.worksheet("Productos Envio")
-        except:
+        ws = None
+        for tab_name in ["Productos Envio", "Productos Envío"]:
             try:
-                ws = sh.worksheet("Productos Envío")
-            except:
-                return
+                ws = sh.worksheet(tab_name)
+                break
+            except Exception:
+                continue
+        if not ws:
+            return
         ws.append_row([categoria, nombre, unidad, ""])
+        # Invalidate product cache so new product shows up
+        _product_cache["ts"] = 0
         log.info(f"Nuevo producto agregado al catalogo: {nombre} ({categoria})")
     except Exception as e:
         log.error(f"Error agregando producto: {e}")
