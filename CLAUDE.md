@@ -466,6 +466,27 @@ ZONAS = ["Cocina", "Mostrador", "Barra"]
     guiones). Esto causaba errores silenciosos de Telegram ("Bad Request:
     can't parse entities"). Fix: se paso a `parse_mode="Markdown"` (v1) o
     sin parse_mode donde no hace falta formatting.
+23. **Google Forms son REFERENCIA ABSOLUTA para productos (17 abril 2026).**
+    Martin pidio: "tenemos que usar como absoluta referencia toda la info que
+    pregunta en el google form, que es lo que estan usando actualmente".
+    Hay 3 forms: COCINA (stock cocina por local), MOSTRADOR (stock mostrador
+    por local), y BARRA (café y barra — Sheet #5). Los nombres de producto
+    en `_crear_productos_iniciales()` DEBEN coincidir EXACTO con los forms.
+    Si se cambia un producto en el form, hay que cambiarlo en el codigo y
+    viceversa. NUNCA inventar nombres de producto — copiarlos del form.
+24. **CATALOG_VERSION fuerza re-sync de productos.** El Sheet "Productos Envio"
+    se crea una sola vez. Si se cambia el catalogo en el codigo, la version
+    vieja persiste en Sheets y el bot sigue usando los productos viejos.
+    Fix: `CATALOG_VERSION` en el codigo (ej: "2026-04-17-v2"). Al arrancar,
+    `cargar_productos()` compara contra la version guardada en celda F1 del
+    Sheet. Si difiere, borra la pestana y la recrea con los productos nuevos.
+    **Para actualizar productos:** cambiar `_crear_productos_iniciales()` Y
+    bumpar `CATALOG_VERSION`. En el proximo arranque se re-sincroniza solo.
+25. **Cantidades decimales para kg.** `_parsear_template()` ahora soporta
+    float para items en kg (ej: "Pasta de pistacho: 0.5"). Enteros se
+    mantienen como int, decimales como float redondeado a 3 decimales.
+    Todo el pipeline (stock_apply_movement, stock_update_product,
+    stock_log_movement) maneja floats correctamente.
 
 ---
 

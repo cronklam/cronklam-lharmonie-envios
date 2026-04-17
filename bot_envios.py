@@ -132,21 +132,37 @@ def cargar_productos() -> tuple:
         gc, sh = get_sheets_client()
         if not sh:
             return {}, {}, {}
+        # Find existing worksheet (with or without accent)
+        ws = None
+        for tab_name in ["Productos Envío", "Productos Envio"]:
+            try:
+                ws = sh.worksheet(tab_name)
+                break
+            except:
+                continue
+
         need_create = False
-        try:
-            ws = sh.worksheet("Productos Envío")
-            # Check catalog version in cell F1
-            version_cell = ws.acell("F1").value or ""
+        if ws:
+            try:
+                version_cell = ws.acell("F1").value or ""
+            except:
+                version_cell = ""
             if version_cell != CATALOG_VERSION:
                 log.info(f"Catalogo desactualizado ({version_cell!r} vs {CATALOG_VERSION}). Recreando...")
-                sh.del_worksheet(ws)
+                try:
+                    sh.del_worksheet(ws)
+                    _time.sleep(2)
+                except Exception as del_err:
+                    log.warning(f"No se pudo borrar pestana productos: {del_err}")
                 need_create = True
-        except:
+        else:
             need_create = True
+
         if need_create:
-            ws = sh.add_worksheet("Productos Envío", rows=200, cols=6)
-            ws.append_row(["Categoría", "Producto", "Unidad", "Zona", "", CATALOG_VERSION])
+            ws = sh.add_worksheet("Productos Envio", rows=200, cols=6)
+            ws.append_row(["Categoria", "Producto", "Unidad", "Zona", "", CATALOG_VERSION])
             _crear_productos_iniciales(ws)
+            _time.sleep(2)
         vals = ws.get_all_values()
         header_idx = 0
         for i, row in enumerate(vals):
@@ -1080,9 +1096,12 @@ def agregar_producto_nuevo(nombre: str, categoria: str = "Varios", unidad: str =
         if not sh:
             return
         try:
-            ws = sh.worksheet("Productos Envío")
+            ws = sh.worksheet("Productos Envio")
         except:
-            return
+            try:
+                ws = sh.worksheet("Productos Envío")
+            except:
+                return
         ws.append_row([categoria, nombre, unidad, ""])
         log.info(f"Nuevo producto agregado al catalogo: {nombre} ({categoria})")
     except Exception as e:
@@ -1300,28 +1319,41 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
         info["paso"] = "cargar_esperando_template"
         estado_usuario[chat_id] = info
 
-        # Build template for this zone
-        products = _get_products_for_zone(zona)
-        local = info.get("cargar_local", "")
+        try:
+            # Build template for this zone
+            products = _get_products_for_zone(zona)
+            local = info.get("cargar_local", "")
 
-        zona_emoji = {"Cocina": "🍳", "Mostrador": "🧁", "Barra": "☕"}.get(zona, "📝")
-        state_label = {"Cocina": "🧊 CONGELADO", "Mostrador": "🔥 HORNEADO", "Barra": "☕ HORNEADO"}.get(zona, "STOCK")
+            if not products:
+                log.warning(f"No products found for zone {zona}")
+                await query.edit_message_text(
+                    f"No se encontraron productos para {zona}. Probá de nuevo con /start"
+                )
+                estado_usuario.pop(chat_id, None)
+                return
 
-        template_lines = [f"{zona_emoji} STOCK {zona.upper()} - {local_corto(local)} ({state_label})"]
-        template_lines.append("")
-        for prod in products:
-            template_lines.append(f"{prod}: _")
+            zona_emoji = {"Cocina": "🍳", "Mostrador": "🧁", "Barra": "☕"}.get(zona, "📝")
+            state_label = {"Cocina": "🧊 CONGELADO", "Mostrador": "🔥 HORNEADO", "Barra": "☕ HORNEADO"}.get(zona, "STOCK")
 
-        template = "\n".join(template_lines)
+            template_lines = [f"{zona_emoji} STOCK {zona.upper()} - {local_corto(local)} ({state_label})"]
+            template_lines.append("")
+            for prod in products:
+                template_lines.append(f"{prod}: _")
 
-        # Send template as a separate message so user can copy it
-        await query.edit_message_text(
-            f"📝 Copia este mensaje, completá las cantidades y mandalo 👇\n\n"
-            f"Poné 0 o dejá _ en los que no tengas.",
-            parse_mode="Markdown"
-        )
-        # Send template as plain text (no markdown) so it's easy to copy
-        await query.message.reply_text(template)
+            template = "\n".join(template_lines)
+
+            # Send template as a separate message so user can copy it
+            await query.edit_message_text(
+                f"Copia este mensaje, completa las cantidades y mandalo:",
+            )
+            # Send template as plain text (no markdown) so it's easy to copy
+            await query.message.reply_text(template)
+        except Exception as e:
+            log.error(f"Error generando template para {zona}: {e}", exc_info=True)
+            await query.edit_message_text(
+                f"Error cargando productos: {e}\n\nProbá de nuevo con /start"
+            )
+            estado_usuario.pop(chat_id, None)
         return
 
     # ── FLUJO FERMENTACION (TEMPLATE) ────────────────────────────────
