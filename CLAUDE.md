@@ -7,16 +7,16 @@
 
 ## Que es este proyecto
 
-Bot de Telegram para gestionar envios de mercaderia y stock entre el
-centro de produccion (CDP = Nicaragua) y los locales de Lharmonie.
-Registra envios, recepciones, stock por local, y genera sugerencias
-de fermentacion y pedidos.
+Bot de Telegram para CARGA DE DATOS de logistica y stock de Lharmonie.
+Los empleados registran envios, recepciones, stock por zona y
+fermentacion. El bot NO muestra reportes ni stock — es solo INPUT.
+Los reportes van a un dashboard (por construir).
 
 **Repo:** `cronklam/cronklam-lharmonie-envios` (privado)
 **Stack:** Python 3 + python-telegram-bot 21.6 + gspread + google-auth + requests
 **Deploy:** Railway (servicio `cronklam-lharmonie-en...` dentro del
 proyecto `satisfied-wholeness`, junto al bot principal)
-**Archivo principal:** `bot_envios.py` (~2488 lineas)
+**Archivo principal:** `bot_envios.py` (~1453 lineas)
 
 **Dueno:** Martin Masri (martin.a.masri@gmail.com).
 **Nombre:** siempre "Lharmonie" (sin apostrofe). Nunca "L'Harmonie".
@@ -243,13 +243,17 @@ cmd_stock, cmd_cargar, cmd_sugerencia, cmd_reporte
 
 **Menu:** cmd_start (menu principal con 6 botones)
 
-### Menu principal
+### Menu principal (4 botones, simplificado 17 abril 2026)
 
 ```
-📦 Nuevo envio    📥 Recibir envio
-📊 Ver stock      📝 Cargar stock
-💡 Sugerencias    📋 Reporte
+📦 Enviar         📥 Recibir
+📝 Cargar stock   🔥 Fermentación
 ```
+
+**REGLA UX (Martin, 17 abril 2026):** El bot es SOLO para cargar datos.
+Los empleados NO deben ver stock ni reportes. Eso va a un dashboard.
+"No necesito que vean ahi el stock que cargaron, justamente el chiste es
+que no lo vean."
 
 ---
 
@@ -362,6 +366,21 @@ ZONAS = ["Cocina", "Mostrador", "Barra"]
     dejar todo en una sola app seria y prolija". Pero por ahora: bot
     Telegram + Google Sheets. La arquitectura esta pensada para que la
     logica se pueda migrar a un backend de app en el futuro.
+11. **TEXTO LIBRE > MENUS (17 abril 2026).** La version con menus de
+    categoria/producto/cantidad era "muy complejo". Martin pidio que
+    acepte texto directo: "medialunas 50, budines 20". El bot parsea
+    con fuzzy matching. NUNCA volver a hacer flujos multi-step para
+    cargar productos. Texto libre + fuzzy match + confirmar = listo.
+12. **Espanol ARGENTINO, no formal.** "Dale", "manda", "listo", "anotado".
+    Tuteo ("vos mandas", "elegi"). No "Confirmar envio", no "Desea usted".
+    Los usuarios son encargados laburando rapido, no ejecutivos.
+13. **Bot = INPUT, dashboard = OUTPUT.** El bot NO muestra stock, reportes,
+    sugerencias. Solo CARGA datos. Para ver cuanto producir, cuanto enviar,
+    stock por local, etc → dashboard (por construir). Martin: "para saber
+    cuanto tiene que producir y cuanto enviar vamos a armar un dashboard".
+14. **No mostrar resumen al empleado.** Despues de cargar stock o fermentacion,
+    no mostrar lo que cargaron. "El chiste es que no lo vean." Solo confirmar
+    "Anotado" y listo. La transparencia es para Martin en el dashboard.
 
 ---
 
