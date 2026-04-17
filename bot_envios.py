@@ -1097,6 +1097,8 @@ def _parsear_template(texto: str) -> list:
             nombre = m.group(1).strip()
             # Strip "(hay N)" context from fermentation templates
             nombre = re.sub(r'\s*\(hay\s+\d+[\.,]?\d*\)\s*$', '', nombre)
+            # Strip "(unit)" context from stock templates — e.g., "(kg)", "(u)", "(lt)"
+            nombre = re.sub(r'\s*\([a-zA-Z]+\)\s*$', '', nombre)
             try:
                 val = float(m.group(2).replace(",", "."))
             except ValueError:
@@ -1421,16 +1423,20 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             zona_emoji = {"Cocina": "🍳", "Mostrador": "🧁", "Barra": "☕"}.get(zona, "📝")
             state_label = {"Cocina": "🧊 CONGELADO", "Mostrador": "🔥 HORNEADO", "Barra": "☕ HORNEADO"}.get(zona, "STOCK")
 
+            # Get units dict for showing measurement units
+            _, unidades_dict, _ = cargar_productos()
+
             template_lines = [f"{zona_emoji} STOCK {zona.upper()} - {local_corto(local)} ({state_label})"]
             template_lines.append("")
             for prod in products:
-                template_lines.append(f"{prod}: _")
+                unit = unidades_dict.get(prod, "u")
+                template_lines.append(f"{prod} ({unit}): _")
 
             template = "\n".join(template_lines)
 
-            # Send template as a separate message so user can copy it
+            # Send instruction + template
             await query.edit_message_text(
-                f"Copia este mensaje, completa las cantidades y mandalo:",
+                "Copia el mensaje de abajo, pegalo, completa las cantidades y mandalo 👇",
             )
             # Send template as plain text (no markdown) so it's easy to copy
             await query.message.reply_text(template)
@@ -1493,7 +1499,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
             template = "\n".join(template_lines)
             await query.message.reply_text(
-                "Copia, completá cuanto sacas a fermentar y mandalo 👇",
+                "Copia el mensaje de abajo, pegalo, completa las cantidades y mandalo 👇",
                 parse_mode="Markdown"
             )
             await query.message.reply_text(template)
@@ -1927,11 +1933,29 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ── STOCK: Template response ──
     if paso == "cargar_esperando_template":
+        # Check if user is confirming empty items
+        if info.get("esperando_confirmacion_vacios"):
+            respuesta = texto.strip().lower()
+            if respuesta in ("si", "sí", "s", "1", "ok", "dale"):
+                # Empty items = no hay stock → save as 0? No, just confirm and move on
+                await update.message.reply_text("✅ Listo, los que no completaste es porque no hay.")
+            else:
+                await update.message.reply_text(
+                    "Dale, entonces volvé a cargar stock con los que faltaron."
+                )
+            await update.message.reply_text(
+                "Elegí que hacer:",
+                reply_markup=_main_menu_keyboard(),
+                parse_mode="Markdown"
+            )
+            estado_usuario.pop(chat_id, None)
+            return
+
         items = _parsear_template(texto)
         if not items:
             await update.message.reply_text(
                 "No encontre productos con cantidades. Asegurate de completar con numeros.\n\n"
-                "Formato: Medialunas: 50",
+                "Formato: Medialunas (u): 50",
                 parse_mode="Markdown"
             )
             return
@@ -1954,6 +1978,7 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
             productos_dict, unidades_dict, _ = cargar_productos()
             saved_count = 0
             errors = []
+            saved_names = []
 
             for nombre, cantidad in items:
                 # Fuzzy match against catalog
@@ -1969,6 +1994,8 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
                     )
                     if ok:
                         saved_count += 1
+                        unit = unidades_dict.get(prod_name, "u")
+                        saved_names.append(f"  {prod_name}: {cantidad} {unit}")
                     else:
                         errors.append(f"{prod_name}: {msg}")
                     _time.sleep(1)  # Rate limit
@@ -1978,13 +2005,43 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
             if errors:
                 log.warning(f"Errores en carga stock: {errors}")
 
-            await update.message.reply_text("✅ Anotado")
-            # Back to menu
-            await update.message.reply_text(
-                "Dale, elegí que hacer:",
-                reply_markup=_main_menu_keyboard(),
-                parse_mode="Markdown"
-            )
+            # Check which products from the zone were NOT filled in
+            zone_products = _get_products_for_zone(zona)
+            filled_names_lower = {n.lower() for n, _ in items}
+            # Also check matched names
+            matched_lower = set()
+            for n, _ in items:
+                pm, _, _ = _buscar_producto_similar(n, productos_dict, unidades_dict)
+                if pm:
+                    matched_lower.add(pm.lower())
+            filled_all = filled_names_lower | matched_lower
+
+            vacios = [p for p in zone_products if p.lower() not in filled_all]
+
+            # Build confirmation message
+            msg_lines = [f"✅ Anotado — {saved_count} productos guardados"]
+            if vacios:
+                msg_lines.append("")
+                msg_lines.append(f"Quedaron {len(vacios)} sin completar:")
+                for v in vacios[:15]:  # Show max 15 to avoid huge message
+                    msg_lines.append(f"  - {v}")
+                if len(vacios) > 15:
+                    msg_lines.append(f"  ... y {len(vacios) - 15} más")
+                msg_lines.append("")
+                msg_lines.append("Los dejaste vacíos porque NO HAY, o te los salteaste?")
+                msg_lines.append('Respondé "si" si no hay, o "no" si te faltó cargarlos.')
+
+                await update.message.reply_text("\n".join(msg_lines))
+                info["esperando_confirmacion_vacios"] = True
+                estado_usuario[chat_id] = info
+                return
+            else:
+                await update.message.reply_text("\n".join(msg_lines))
+                await update.message.reply_text(
+                    "Elegí que hacer:",
+                    reply_markup=_main_menu_keyboard(),
+                    parse_mode="Markdown"
+                )
 
         except Exception as e:
             log.error(f"Error en carga stock template: {e}")
@@ -2036,9 +2093,9 @@ async def handle_texto(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 except Exception as e:
                     log.error(f"Error fermentacion {prod_name}: {e}")
 
-            await update.message.reply_text("✅ Anotado")
+            await update.message.reply_text(f"✅ Anotado — {saved_count} productos a fermentar")
             await update.message.reply_text(
-                "Dale, elegí que hacer:",
+                "Elegí que hacer:",
                 reply_markup=_main_menu_keyboard(),
                 parse_mode="Markdown"
             )
