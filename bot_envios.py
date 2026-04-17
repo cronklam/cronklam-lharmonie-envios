@@ -327,7 +327,10 @@ def cargar_productos() -> tuple:
                 else:
                     zonas[prod] = ["Cocina", "Mostrador", "Barra"]
         total = sum(len(v) for v in productos.values())
-        log.info(f"Productos cargados desde Sheet: {total} en {len(productos)} categorias")
+        zonas_with_cocina = sum(1 for z_list in zonas.values() if "Cocina" in z_list)
+        zonas_empty = sum(1 for z_list in zonas.values() if not z_list)
+        log.info(f"Productos cargados desde Sheet: {total} en {len(productos)} categorias. "
+                 f"Zonas: {len(zonas)} total, {zonas_with_cocina} con Cocina, {zonas_empty} vacias")
 
         # Validate: if Sheet returned 0 products, something is wrong — use fallback
         if total == 0:
@@ -360,16 +363,35 @@ def _crear_productos_iniciales(ws):
 
 
 def _get_products_for_zone(zona: str) -> list:
-    """Returns sorted list of product names that belong to a given zone."""
+    """Returns sorted list of product names that belong to a given zone.
+    Has its own hardcoded fallback — NEVER returns empty."""
     productos, unidades, zonas = cargar_productos()
+    zona_lower = zona.lower()
     result = []
     for cat, prods in productos.items():
         for prod in prods:
             prod_zones = zonas.get(prod, [])
-            if zona in prod_zones:
+            # Case-insensitive zone matching
+            if any(z.lower() == zona_lower for z in prod_zones):
                 result.append(prod)
-    if not result:
-        log.warning(f"_get_products_for_zone({zona!r}): 0 productos. Cache: {len(zonas)} items en zonas dict")
+    if result:
+        log.info(f"_get_products_for_zone({zona!r}): {len(result)} productos encontrados")
+        return sorted(result)
+
+    # If cargar_productos() returned data but no zone matches, try hardcoded directly
+    log.warning(f"_get_products_for_zone({zona!r}): 0 productos de cargar_productos() "
+                f"({sum(len(v) for v in productos.values())} prods total, "
+                f"{len(zonas)} con zona). Usando hardcoded directo.")
+    hc_prods, _, hc_zonas = _parse_product_list(_HARDCODED_PRODUCTS)
+    for cat, prods in hc_prods.items():
+        for prod in prods:
+            prod_zones = hc_zonas.get(prod, [])
+            if any(z.lower() == zona_lower for z in prod_zones):
+                result.append(prod)
+    if result:
+        log.info(f"_get_products_for_zone({zona!r}): {len(result)} productos via hardcoded fallback")
+    else:
+        log.error(f"_get_products_for_zone({zona!r}): 0 incluso con hardcoded! Imposible.")
     return sorted(result)
 
 
