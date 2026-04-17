@@ -487,6 +487,30 @@ ZONAS = ["Cocina", "Mostrador", "Barra"]
     mantienen como int, decimales como float redondeado a 3 decimales.
     Todo el pipeline (stock_apply_movement, stock_update_product,
     stock_log_movement) maneja floats correctamente.
+26. **cargar_productos() DEBE tener cache y fallback (17 abril 2026).**
+    Bug critico: `cargar_productos()` se llamaba en CADA interaccion sin
+    cache, golpeando la API de Sheets cada vez. Si la pestana vieja
+    "Productos Envío" (con acento) no se borraba bien, cada llamada
+    cascadeaba: encontrar vieja → version mismatch → fallar borrado →
+    intentar crear "Productos Envio" → ya existe → excepcion → return {}.
+    Fix (3 capas de resiliencia):
+    - **Cache en memoria** (10min TTL `_product_cache`): evita golpear
+      Sheets en cada click
+    - **Manejo de tabs duplicados**: busca TODAS las pestanas, prefiere
+      sin acento, limpia duplicados antes de crear
+    - **Fallback hardcoded** (`_HARDCODED_PRODUCTS`): si Sheet devuelve
+      0 productos o es inalcanzable, usa la lista del codigo. El bot
+      NUNCA muestra "0 productos" — siempre tiene algo.
+    - **`_parse_product_list()`**: funcion compartida para parsear tanto
+      datos de Sheet como hardcoded (single source of truth)
+    CATALOG_VERSION bumpeado a v3. `_crear_productos_iniciales()` ahora
+    lee de `_HARDCODED_PRODUCTS` en vez de lista propia.
+27. **Pestanas con acentos causan bugs recurrentes.** "Productos Envío"
+    vs "Productos Envio" (con y sin acento en i) son nombres DISTINTOS
+    para gspread/Google Sheets. El codigo debe buscar AMBAS variantes
+    siempre, y crear nuevas SIN acento. Si la vieja con acento persiste,
+    hay que borrarla explicitamente. Aplicar este patron a CUALQUIER
+    pestana cuyo nombre pueda tener caracteres especiales.
 
 ---
 
