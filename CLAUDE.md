@@ -16,7 +16,7 @@ Los reportes van a un dashboard (por construir).
 **Stack:** Python 3 + python-telegram-bot 21.6 + gspread + google-auth + requests
 **Deploy:** Railway (servicio `cronklam-lharmonie-en...` dentro del
 proyecto `satisfied-wholeness`, junto al bot principal)
-**Archivo principal:** `bot_envios.py` (~1786 lineas)
+**Archivo principal:** `bot_envios.py` (~2074 lineas)
 
 **Dueno:** Martin Masri (martin.a.masri@gmail.com).
 **Nombre:** siempre "Lharmonie" (sin apostrofe). Nunca "L'Harmonie".
@@ -112,23 +112,24 @@ Sheet ID: `1s6kPguwD25k3xpmbUoHq1KNFd_SEva3z7pvTGhA4bsE`
 
 ## Como funciona — ENVIOS
 
-### Flujo de envio
+### Flujo de envio (simplificado 17 abril 2026)
 ```
-1. Encargado produccion: /enviar o boton "Nuevo envio"
-2. Selecciona local destino (CDP/LH2/LH3/LH4/LH5)
-3. Agrega productos:
-   a. Selecciona categoria (Pasteleria, Elaborados, Varios)
-   b. Selecciona producto del catalogo (o agrega manual con fuzzy matching)
-   c. Indica cantidad y unidad
-   d. Repite hasta completar
-4. Selecciona transporte (Ezequiel/Uber)
-5. Revisa resumen editable
-6. Confirma → se registra en Google Sheet + notificacion a Martin/Iaras
+1. Encargado produccion: /enviar o boton "📦 Enviar"
+2. Ingresa su nombre
+3. Selecciona local destino (CDP/LH2/LH3/LH4/LH5)
+4. Escribe productos en TEXTO LIBRE: "medialunas 50, budines 20"
+   Bot parsea con fuzzy matching contra catalogo
+5. Selecciona transporte (Ezequiel/Uber)
+6. Revisa resumen editable (puede agregar/quitar/cambiar)
+7. Confirma → se registra en Google Sheet + notificacion a Martin/Iaras
 ```
+
+**CAMBIO CLAVE (17 abril 2026):** Se eliminaron los menus de categoria →
+producto → cantidad. Ahora es texto libre directo. Martin: "muy complejo".
 
 ### Flujo de recepcion
 ```
-1. Encargado local: /recibir o boton "Recibir envio"
+1. Encargado local: /recibir o boton "📥 Recibir"
 2. Ve lista de envios pendientes para su local
 3. Selecciona envio
 4. Confirma recepcion con nombre del receptor
@@ -139,36 +140,63 @@ Sheet ID: `1s6kPguwD25k3xpmbUoHq1KNFd_SEva3z7pvTGhA4bsE`
 
 ---
 
-## Como funciona — STOCK
+## Como funciona — STOCK (reescrito 17 abril 2026)
 
-### Comandos principales
-
-| Comando | Que hace |
-|---------|----------|
-| `/stock` o "Ver stock" | Muestra stock actual del local seleccionado |
-| `/cargar` o "Cargar stock" | Inicia carga de stock por zona |
-| `/sugerencia` o "Sugerencias" | Muestra sugerencias de pedido y fermentacion |
-| `/reporte` o "Reporte" | Reporte global de todos los locales |
-
-### Flujo de carga de stock
+### Flujo de carga de stock (TEMPLATE)
 ```
-1. Encargado: /cargar
-2. Selecciona local
+1. Encargado: boton "📝 Cargar stock"
+2. Selecciona local (CDP/LH2/LH3/LH4/LH5)
 3. Selecciona zona (Cocina/Mostrador/Barra)
-4. Selecciona producto
-5. Indica cantidad y estado (CONGELADO o HORNEADO)
-6. Puede agregar mas productos o finalizar
-7. Se actualiza el Sheet y se loguea el movimiento
+4. Bot envia TEMPLATE con todos los productos de esa zona:
+   "🧊 COCINA — LH3 - Maure 1516
+    Completá las cantidades y mandá:
+
+    Medialunas: _
+    Budín banana: _
+    Alfajor de chocolate: _
+    ..."
+5. Empleado copia, completa cantidades, envia de vuelta
+6. Bot parsea con _parsear_template(), ignora ": 0" y ": _"
+7. Guarda via stock_apply_movement(TIPO_CARGA_STOCK)
+8. Responde solo "✅ Anotado" (NO muestra resumen)
 ```
 
-### Flujo de sugerencias
+**Estado default por zona:** Cocina=CONGELADO, Mostrador=HORNEADO, Barra=HORNEADO
+(dict `ZONA_DEFAULT_STATE` en el codigo).
+
+### Flujo de fermentacion (TEMPLATE)
 ```
-1. /sugerencia
+1. Encargado: boton "🔥 Fermentación"
 2. Selecciona local
-3. Bot muestra:
-   a. Sugerencia de pedido: items bajo stock minimo
-   b. Sugerencia de fermentacion: basada en stock actual + demanda esperada
+3. Bot lee stock CONGELADO actual del local
+4. Envia template con stock disponible:
+   "🔥 FERMENTACIÓN — LH3 - Maure 1516
+    Cuánto sacás a fermentar de cada uno:
+
+    Medialunas (hay 120): _
+    Budín banana (hay 30): _
+    ..."
+5. Empleado completa cantidades
+6. Bot parsea, decrementa CONGELADO por cada producto
+7. Responde solo "✅ Anotado"
 ```
+
+### Ordenes del dia (ex-sugerencias)
+```
+1. Encargado: boton "📋 Órdenes del día"
+2. Selecciona local
+3. Bot muestra en tono IMPERATIVO:
+   a. Pedido a CDP: items bajo stock minimo
+   b. Fermentacion: basada en stock congelado + dia de semana
+```
+
+### Comandos ELIMINADOS (17 abril 2026)
+- `/stock` (Ver stock) — ELIMINADO. Empleados no deben ver stock.
+- `/reporte` (Reporte global) — ELIMINADO. Va al dashboard.
+- `/sugerencia` — RENOMBRADO a `/ordenes` (Ordenes del dia).
+- Funciones eliminadas: `cmd_stock`, `cmd_reporte`, `_format_stock_for_local`,
+  `_format_reporte_global`, todos los handlers de cargar step-by-step
+  (cargar_eligiendo_tipo, cargar_tipo_*, cargar_cat_*, cargar_prod_*, etc.)
 
 ---
 
@@ -181,7 +209,7 @@ produccion). Sheet ID via env var `ENVIOS_SHEETS_ID`.
 
 | Pestana | Tipo | Descripcion |
 |---------|------|-------------|
-| `Productos Envio` | Catalogo | Categoria, Producto, Unidad (~60 items) |
+| `Productos Envio` | Catalogo | Categoria, Producto, Unidad, Zona (~90 items, 4 columnas) |
 | `Envios` | Registro | Fecha, origen, destino, productos, transporte, estado |
 | `Stock_{LOCAL}` | Stock actual | Producto, Congelado, Horneado, Zona, Ultima actualizacion |
 | `Movimientos` | Log | Timestamp, local, producto, tipo, cantidad, estado, usuario |
@@ -228,20 +256,22 @@ IDs de Telegram que reciben notificaciones:
 El bot usa un dict `estado_usuario` (NO ConversationHandler de python-telegram-bot).
 Cada usuario tiene su propio estado con contexto del flujo actual.
 
-### Funciones principales (~49 funciones)
+### Funciones principales (post-rewrite 17 abril 2026)
 
-**Envios:** handle_button, flujo_enviar_*, flujo_recibir_*, confirmar_envio,
-confirmar_recepcion, cmd_enviar, cmd_recibir
+**Envios:** handle_button, flujo_enviar_* (nombre→destino→texto libre→transporte→
+resumen→confirmar), flujo_recibir_*, confirmar_envio, confirmar_recepcion
 
-**Stock:** get_stock_sheet, _get_or_create_stock_ws, _ensure_stock_tabs,
+**Stock (template):** get_stock_sheet, _get_or_create_stock_ws, _ensure_stock_tabs,
 stock_get_all_products, stock_get_minimums, stock_read_actual,
 stock_update_product, stock_log_movement, stock_apply_movement,
 stock_apply_envio_recibido, stock_check_alerts, _send_stock_alerts,
-_format_stock_for_local, _format_sugerencia_pedido,
-_format_sugerencia_fermentacion, _format_reporte_global,
-cmd_stock, cmd_cargar, cmd_sugerencia, cmd_reporte
+_get_products_for_zone, _parsear_template, _format_orden_pedido,
+_format_orden_fermentacion
 
-**Menu:** cmd_start (menu principal con 6 botones)
+**Constantes nuevas:** ZONA_DEFAULT_STATE (zona→estado default),
+TIPO_CARGA_STOCK ("carga_stock" — nuevo tipo de movimiento)
+
+**Menu:** cmd_start + _main_menu_keyboard (menu principal con 5 botones)
 
 ### Menu principal (5 botones, 17 abril 2026)
 
@@ -401,6 +431,41 @@ ZONAS = ["Cocina", "Mostrador", "Barra"]
 17. **Bistrosoft Transacciones tab rota (17 abril 2026).** Martin noto que
     la tab solo tiene datos de Marzo. Deberia tener rolling 15 dias siempre
     (para Stock Minimo). Fix pendiente en repo Api-bistrosoft DESPUES del bot.
+    **UPDATE:** Fix deployado — STEP 5 en monthly_close.yml restaura rolling.
+    Pero la API de Bistrosoft no devolvía datos de Abril al 17 abril (Pesaj).
+    Cuando la API tenga datos, el daily sync los agrega automáticamente.
+18. **TEMPLATE > MENUS para carga de stock (17 abril 2026).** La version con
+    menus step-by-step (elegir producto → cantidad → estado → siguiente) tenia
+    8 pasos por producto y daba "error producto" constantemente (cada paso
+    requeria Sheets API calls que podian fallar). Martin pidio: "SI CUANDO
+    QUIEREN CARGAR EL STOCK LE DAMOS A LA GENTE UN MENSAJE PREDETERMINADO
+    PARA QUE COPIEN, COMPLETEN CON INFO Y ENVIEN?" Se implemento exactamente
+    asi: bot envia template con todos los productos de la zona, empleado copia,
+    completa numeros, envia. Bot parsea con `_parsear_template()`. Reduce de
+    8 pasos por producto a 3 pasos TOTAL (local → zona → template response).
+    NUNCA volver a hacer menus step-by-step para carga de stock.
+19. **_parsear_template() es robusto.** Parsea formato "Producto: N" por linea.
+    Ignora lineas con ": 0", ": _", headers con emojis, lineas vacias.
+    Stripea contexto de fermentacion "(hay N)" antes de parsear. Fuzzy matching
+    contra catalogo para tolerar typos. Si no matchea ningun producto, avisa
+    al usuario y pide que reintente.
+20. **Cowork mount ≠ git repo path.** El folder montado como `bot-envios` en
+    Cowork (`/mnt/bot-envios/`) NO es el mismo que el git repo que GitHub
+    Desktop trackea (`/mnt/cronklam-lharmonie-envios/`). Cambios hechos con
+    Write/Edit en `bot-envios` NO aparecen en GitHub Desktop. Hay que copiar
+    el archivo al repo correcto antes de commitear. Verificar SIEMPRE con
+    `ls` que los cambios esten en el mount que tiene `.git/`.
+21. **Nuevo tipo de movimiento: TIPO_CARGA_STOCK.** Antes solo habia
+    ENVIO_RECIBIDO, FERMENTACION, HORNEADO, VENTA, TRANSFER, MERMA. Se agrego
+    "carga_stock" para distinguir cargas manuales de stock (template) de otros
+    movimientos. `stock_apply_movement()` lo maneja: si estado es "congelado"
+    → actualiza columna Congelado, si "horneado" → columna Horneado. La zona
+    se registra en el movimiento tambien.
+22. **MarkdownV2 escaping bug.** El bot usaba `parse_mode="MarkdownV2"` en
+    algunos mensajes pero el texto tenia caracteres sin escapear (puntos,
+    guiones). Esto causaba errores silenciosos de Telegram ("Bad Request:
+    can't parse entities"). Fix: se paso a `parse_mode="Markdown"` (v1) o
+    sin parse_mode donde no hace falta formatting.
 
 ---
 
