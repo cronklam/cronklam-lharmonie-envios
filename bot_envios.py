@@ -116,6 +116,9 @@ def get_stock_sheet():
 
 
 # ── PRODUCTOS ─────────────────────────────────────────────────────────────────
+CATALOG_VERSION = "2026-04-17-v2"  # Bump this to force re-sync of product catalog
+
+
 def cargar_productos() -> tuple:
     """
     Lee la pestana 'Productos Envio' del Sheet.
@@ -123,16 +126,26 @@ def cargar_productos() -> tuple:
       - categorias: {categoria: [producto1, producto2, ...]}
       - unidades:   {producto: "u"|"kg"|"lt"|"g"|...}
       - zonas:      {producto: ["Cocina", "Mostrador", ...]}
+    Si la version del catalogo cambio, borra y recrea la pestana.
     """
     try:
         gc, sh = get_sheets_client()
         if not sh:
             return {}, {}, {}
+        need_create = False
         try:
             ws = sh.worksheet("Productos Envío")
+            # Check catalog version in cell F1
+            version_cell = ws.acell("F1").value or ""
+            if version_cell != CATALOG_VERSION:
+                log.info(f"Catalogo desactualizado ({version_cell!r} vs {CATALOG_VERSION}). Recreando...")
+                sh.del_worksheet(ws)
+                need_create = True
         except:
-            ws = sh.add_worksheet("Productos Envío", rows=200, cols=4)
-            ws.append_row(["Categoría", "Producto", "Unidad", "Zona"])
+            need_create = True
+        if need_create:
+            ws = sh.add_worksheet("Productos Envío", rows=200, cols=6)
+            ws.append_row(["Categoría", "Producto", "Unidad", "Zona", "", CATALOG_VERSION])
             _crear_productos_iniciales(ws)
         vals = ws.get_all_values()
         header_idx = 0
@@ -168,84 +181,104 @@ def cargar_productos() -> tuple:
 
 
 def _crear_productos_iniciales(ws):
-    """Crea el catalogo inicial de productos."""
+    """Crea el catalogo inicial de productos.
+    FUENTE: Google Forms de stock (Cocina + Mostrador + Barra).
+    Los nombres DEBEN coincidir con los forms. Si se cambian,
+    actualizar tambien los forms y viceversa.
+    Ultima sync: 17 abril 2026.
+    """
     productos = [
-        ("Pastelería", "Alfajor de chocolate", "u", "Mostrador"),
+        # ── MOSTRADOR (del form "LH {LOCAL} - MOSTRADOR") ──
         ("Pastelería", "Alfajor de nuez", "u", "Mostrador"),
+        ("Pastelería", "Alfajor de chocolate", "u", "Mostrador"),
         ("Pastelería", "Alfajor de pistacho", "u", "Mostrador"),
-        ("Pastelería", "Barritas proteína", "u", "Mostrador"),
-        ("Pastelería", "Brownie", "u", "Mostrador"),
-        ("Pastelería", "Budín", "u", "Mostrador"),
-        ("Pastelería", "Cookie chocolate", "u", "Mostrador"),
-        ("Pastelería", "Cookie de maní", "u", "Mostrador"),
-        ("Pastelería", "Cookie melu", "u", "Mostrador"),
         ("Pastelería", "Cookie nuez", "u", "Mostrador"),
+        ("Pastelería", "Cookie melu", "u", "Mostrador"),
         ("Pastelería", "Cookie red velvet", "u", "Mostrador"),
+        ("Pastelería", "Cookie chocolate simple", "u", "Mostrador"),
+        ("Pastelería", "Cookie de mani", "u", "Mostrador"),
+        ("Pastelería", "Brownie", "u", "Mostrador"),
         ("Pastelería", "Cuadrado de coco", "u", "Mostrador"),
         ("Pastelería", "Muffin", "u", "Mostrador"),
+        ("Pastelería", "Barritas proteína", "u", "Mostrador"),
         ("Pastelería", "Porción de dátiles", "u", "Mostrador"),
-        ("Pastelería", "Porción de torta", "u", "Mostrador"),
+        ("Pastelería", "Brioche de pastelera", "u", "Mostrador"),
         ("Pastelería", "Tarteleta", "u", "Mostrador"),
-        ("Elaborados", "Bavka choco", "u", "Cocina, Mostrador"),
-        ("Elaborados", "Bavka pistacho", "u", "Cocina, Mostrador"),
-        ("Elaborados", "Brioche pastelera", "u", "Cocina, Mostrador"),
-        ("Elaborados", "Chipa", "u", "Cocina, Mostrador"),
-        ("Elaborados", "Chipa prensado", "u", "Cocina, Mostrador"),
-        ("Elaborados", "Croissant", "u", "Cocina, Mostrador"),
-        ("Elaborados", "Medialunas", "u", "Cocina, Mostrador"),
-        ("Elaborados", "Pain au choco", "u", "Cocina, Mostrador"),
-        ("Elaborados", "Palitos de queso", "u", "Cocina, Mostrador"),
-        ("Elaborados", "Palmeras", "u", "Cocina, Mostrador"),
-        ("Elaborados", "Pan brioche", "u", "Cocina, Mostrador"),
-        ("Elaborados", "Pan brioche cuadrado", "u", "Cocina, Mostrador"),
-        ("Elaborados", "Pan masa madre con semillas", "u", "Cocina, Mostrador"),
-        ("Elaborados", "Pan suisse", "u", "Cocina, Mostrador"),
-        ("Elaborados", "Roll canela", "u", "Cocina, Mostrador"),
-        ("Elaborados", "Roll frambuesa", "u", "Cocina, Mostrador"),
-        ("Elaborados", "Tarta del día", "u", "Cocina, Mostrador"),
-        ("Varios", "Aceite de girasol", "u", "Cocina"),
-        ("Varios", "Aceite de oliva cocina", "u", "Cocina"),
-        ("Varios", "Aderezo caesar", "u", "Cocina"),
+        # ── COCINA (del form "LH {LOCAL} - STOCK COCINA") ──
+        # Panes y elaborados (unidades)
+        ("Elaborados", "Tarta del día", "u", "Cocina"),
+        ("Elaborados", "Pan masa madre con semillas", "u", "Cocina"),
+        ("Elaborados", "Pan brioche", "u", "Cocina"),
+        ("Elaborados", "Pan brioche cuadrado", "u", "Cocina"),
+        # Congelados (unidades)
+        ("Elaborados", "Pain au choco", "u", "Cocina"),
+        ("Elaborados", "Bavka pistacho", "u", "Cocina"),
+        ("Elaborados", "Bavka de chocolate", "u", "Cocina"),
+        ("Elaborados", "Pan suisse", "u", "Cocina"),
+        ("Elaborados", "Roll de maní", "u", "Cocina"),
+        ("Elaborados", "Roll canela", "u", "Cocina"),
+        ("Elaborados", "Medialunas", "u", "Cocina"),
+        ("Elaborados", "Croissant", "u", "Cocina"),
+        ("Elaborados", "Chipa", "u", "Cocina"),
+        ("Elaborados", "Chipa prensado", "u", "Cocina"),
+        ("Elaborados", "Palmeras", "u", "Cocina"),
+        ("Elaborados", "Palitos de queso", "u", "Cocina"),
+        # Insumos kilogramos
+        ("Varios", "Pasta de pistacho", "kg", "Cocina"),
+        ("Varios", "Pistacho procesado", "kg", "Cocina"),
+        ("Varios", "Frangipane", "kg", "Cocina"),
+        ("Varios", "Dulce de leche", "kg", "Cocina"),
+        ("Varios", "Mermelada", "kg", "Cocina"),
+        ("Varios", "Mermelada de frambuesa", "kg", "Cocina"),
+        ("Varios", "Bariloche", "kg", "Cocina"),
+        ("Varios", "Maní salado", "kg", "Cocina"),
+        ("Varios", "Frosting de queso", "kg", "Cocina"),
+        ("Varios", "Queso crema", "kg", "Cocina"),
+        ("Varios", "Azucar", "kg", "Cocina"),
+        ("Varios", "Azucar impalpable", "kg", "Cocina"),
+        ("Varios", "Granola", "kg", "Cocina, Barra"),
+        ("Varios", "Pasta de atún", "kg", "Cocina"),
+        ("Varios", "Pesto", "kg", "Cocina"),
+        ("Varios", "Salsa holandesa", "kg", "Cocina"),
+        ("Varios", "Manteca común", "kg", "Cocina"),
+        ("Varios", "Manteca saborizada", "kg", "Cocina"),
+        ("Varios", "Aderezo cesar", "kg", "Cocina"),
+        ("Varios", "Hongos cocidos", "kg", "Cocina"),
+        ("Varios", "Wraps", "u", "Cocina"),
+        ("Varios", "Papas gauchitas", "paq", "Cocina"),
         ("Varios", "Almendras", "kg", "Cocina"),
         ("Varios", "Almendras fileteadas", "kg", "Cocina"),
+        ("Varios", "Picle de pepino redondo", "kg", "Cocina"),
+        ("Varios", "Quinoa crocante", "kg", "Cocina"),
+        ("Varios", "Quinoa cocida", "kg", "Cocina"),
         ("Varios", "Arroz yamani cocido", "kg", "Cocina"),
         ("Varios", "Arroz yamani crudo", "kg", "Cocina"),
-        ("Varios", "Arvejas", "u", "Cocina"),
-        ("Varios", "Azúcar común", "kg", "Cocina"),
-        ("Varios", "Azúcar impalpable", "kg", "Cocina"),
-        ("Varios", "Chocolate en barra", "u", "Cocina"),
-        ("Varios", "Chocolate en trozos", "kg", "Cocina"),
-        ("Varios", "Crema bariloche", "u", "Cocina"),
-        ("Varios", "Crema pastelera de chocolate", "kg", "Cocina"),
-        ("Varios", "Crema pastelera de panadería", "kg", "Cocina"),
-        ("Varios", "Dulce de leche", "kg", "Cocina"),
-        ("Varios", "Frangipane", "kg", "Cocina"),
-        ("Varios", "Frosting de queso", "g", "Cocina"),
-        ("Varios", "Granola", "kg", "Cocina, Barra"),
-        ("Varios", "Hongos cocidos", "u", "Cocina"),
-        ("Varios", "Lomitos de atún", "u", "Cocina"),
-        ("Varios", "Maple de huevos", "u", "Cocina"),
-        ("Varios", "Manteca común", "u", "Cocina"),
-        ("Varios", "Manteca saborizada", "u", "Cocina"),
-        ("Varios", "Mermelada de cocina", "u", "Cocina"),
-        ("Varios", "Mermelada de frambuesa", "u", "Cocina"),
-        ("Varios", "Miel", "u", "Cocina, Barra"),
-        ("Varios", "Pasta de atún", "g", "Cocina"),
-        ("Varios", "Pasta de pistacho", "g", "Cocina"),
-        ("Varios", "Pesto", "g", "Cocina"),
-        ("Varios", "Picles de pepino", "u", "Cocina"),
-        ("Varios", "Pistacho procesado", "g", "Cocina"),
-        ("Varios", "Porción de trucha grill", "u", "Cocina"),
-        ("Varios", "Queso crema", "u", "Cocina"),
-        ("Varios", "Queso sardo", "u", "Cocina"),
-        ("Varios", "Queso tybo", "u", "Cocina"),
-        ("Varios", "Quinoa cocida", "kg", "Cocina"),
-        ("Varios", "Quinoa crocante", "kg", "Cocina"),
-        ("Varios", "Salsa holandesa", "u", "Cocina"),
-        ("Varios", "Vinagre", "u", "Cocina"),
-        ("Varios", "Wraps de espinaca", "u", "Cocina"),
-        ("Varios", "Maní", "kg", "Cocina"),
+        ("Varios", "Atún", "kg", "Cocina"),
+        ("Varios", "Queso sardo", "kg", "Cocina"),
+        ("Varios", "Queso tybo", "kg", "Cocina"),
+        ("Varios", "Porción de trucha", "kg", "Cocina"),
+        ("Varios", "Miel", "kg", "Cocina, Barra"),
+        ("Varios", "Aceite de oliva Zuelo", "lt", "Cocina"),
+        ("Varios", "Vinagre blanco", "lt", "Cocina"),
+        ("Varios", "Siracha", "kg", "Cocina"),
         ("Varios", "Sal", "kg", "Cocina"),
+        # ── BARRA (del form "Stock Café y barra") ──
+        ("Barra", "Café de tolva", "kg", "Barra"),
+        ("Barra", "Paquete 1/4 Café Jairo", "u", "Barra"),
+        ("Barra", "Paquete 1/4 Café Luis", "u", "Barra"),
+        ("Barra", "Paquete 1/4 Café Samba Brasil", "u", "Barra"),
+        ("Barra", "Paquete 1/4 Café Trailblazer Brasil", "u", "Barra"),
+        ("Barra", "Paquete 1/4 Café Cumbia", "u", "Barra"),
+        ("Barra", "Receta leche casera", "u", "Barra"),
+        ("Barra", "Matcha", "u", "Barra"),
+        ("Barra", "Hibiscus", "u", "Barra"),
+        ("Barra", "Curcuma", "u", "Barra"),
+        ("Barra", "Frutilla congelada", "u", "Barra"),
+        ("Barra", "Arandanos congelados", "u", "Barra"),
+        ("Barra", "Té Grey", "u", "Barra"),
+        ("Barra", "Té Royal frut", "u", "Barra"),
+        ("Barra", "Té breakfast", "u", "Barra"),
+        ("Barra", "Té Berrys", "u", "Barra"),
     ]
     rows = [[cat, prod, unidad, zona] for cat, prod, unidad, zona in productos]
     ws.append_rows(rows)
@@ -949,7 +982,8 @@ def _parsear_template(texto: str) -> list:
     Parsea un template de stock completado por el empleado.
     Cada linea con formato "Producto: N" -> (producto, cantidad).
     Ignora lineas con : 0, : _, : o sin numero.
-    Retorna lista de (nombre_producto, cantidad_int).
+    Retorna lista de (nombre_producto, cantidad_float).
+    Cantidad es float para soportar kg decimales (ej: 0.5 kg).
     """
     items = []
     for line in texto.split("\n"):
@@ -959,17 +993,19 @@ def _parsear_template(texto: str) -> list:
         # Skip header/emoji lines
         if line.startswith("🧊") or line.startswith("🔥") or line.startswith("🧁") or line.startswith("☕"):
             continue
-        # Try "Producto: N" format
+        # Try "Producto: N" format (integer or decimal)
         m = re.match(r'^(.+?):\s*(\d+[\.,]?\d*)\s*$', line)
         if m:
             nombre = m.group(1).strip()
             # Strip "(hay N)" context from fermentation templates
-            nombre = re.sub(r'\s*\(hay\s+\d+\)\s*$', '', nombre)
+            nombre = re.sub(r'\s*\(hay\s+\d+[\.,]?\d*\)\s*$', '', nombre)
             try:
-                cantidad = int(float(m.group(2).replace(",", ".")))
+                val = float(m.group(2).replace(",", "."))
             except ValueError:
                 continue
-            if cantidad > 0:
+            if val > 0:
+                # Keep as int if whole number, float if decimal (for kg)
+                cantidad = int(val) if val == int(val) else round(val, 3)
                 items.append((nombre, cantidad))
             continue
         # Also try "Producto: _" or "Producto:" — skip those
