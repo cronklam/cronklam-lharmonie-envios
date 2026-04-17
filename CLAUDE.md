@@ -16,7 +16,7 @@ Los reportes van a un dashboard (por construir).
 **Stack:** Python 3 + python-telegram-bot 21.6 + gspread + google-auth + requests
 **Deploy:** Railway (servicio `cronklam-lharmonie-en...` dentro del
 proyecto `satisfied-wholeness`, junto al bot principal)
-**Archivo principal:** `bot_envios.py` (~1453 lineas)
+**Archivo principal:** `bot_envios.py` (~1786 lineas)
 
 **Dueno:** Martin Masri (martin.a.masri@gmail.com).
 **Nombre:** siempre "Lharmonie" (sin apostrofe). Nunca "L'Harmonie".
@@ -243,17 +243,23 @@ cmd_stock, cmd_cargar, cmd_sugerencia, cmd_reporte
 
 **Menu:** cmd_start (menu principal con 6 botones)
 
-### Menu principal (4 botones, simplificado 17 abril 2026)
+### Menu principal (5 botones, 17 abril 2026)
 
 ```
 📦 Enviar         📥 Recibir
 📝 Cargar stock   🔥 Fermentación
+📋 Órdenes del día
 ```
 
 **REGLA UX (Martin, 17 abril 2026):** El bot es SOLO para cargar datos.
 Los empleados NO deben ver stock ni reportes. Eso va a un dashboard.
 "No necesito que vean ahi el stock que cargaron, justamente el chiste es
 que no lo vean."
+
+**REGLA: DIRECTIVAS, NO SUGERENCIAS.** Las ordenes del dia (pedido a CDP,
+fermentacion) se presentan como HECHOS, no como opcionales. Martin:
+"lo que tienen que sacar a fermentar o los envios no pueden ser sugerencias,
+tienen que ser un hecho."
 
 ---
 
@@ -325,9 +331,10 @@ ZONAS = ["Cocina", "Mostrador", "Barra"]
       Verificar que Railway tenga ENVIOS_SHEETS_ID seteado correctamente.
 - [ ] **Pestanas de stock se crean al primer uso** — verificar que la service
       account tenga permisos de edicion en el Sheet
-- [ ] **Sugerencia de fermentacion simplificada** — usa dia de semana + stock
-      actual. Falta integrar clima (requests ya en requirements) y fechas
-      especiales
+- [ ] **Ordenes del dia simplificadas** — usa dia de semana + stock actual.
+      Falta integrar clima (requests ya en requirements) y fechas especiales.
+      NOTA: renombrado de "Sugerencias" a "Ordenes" porque Martin dijo que
+      fermentacion/envios "no pueden ser sugerencias, tienen que ser un hecho"
 - [ ] **Integracion Bistrosoft pendiente** — cmd_stock lee stock minimo de
       Bistrosoft Sheet pero la auditoria automatica (ventas vs stock) aun no
       esta implementada como cron/scheduled task
@@ -381,6 +388,19 @@ ZONAS = ["Cocina", "Mostrador", "Barra"]
 14. **No mostrar resumen al empleado.** Despues de cargar stock o fermentacion,
     no mostrar lo que cargaron. "El chiste es que no lo vean." Solo confirmar
     "Anotado" y listo. La transparencia es para Martin en el dashboard.
+15. **DIRECTIVAS, no sugerencias (17 abril 2026).** Martin: "lo que tienen
+    que sacar a fermentar o los envios no pueden ser sugerencias, tienen que
+    ser un hecho." La feature "Sugerencias" fue renombrada a "Ordenes del dia".
+    El tono es imperativo: "Saca 50 medialunas", no "Sugerimos sacar 50".
+    NUNCA volver a usar lenguaje opcional para cantidades de fermentacion/envios.
+16. **Zone-aware product catalog (17 abril 2026).** La pestana "Productos Envio"
+    ahora tiene 4 columnas: Categoria, Producto, Unidad, Zona. Cada producto
+    se asigna a Cocina, Mostrador, Barra (o combinaciones). Al cargar stock,
+    el bot muestra checklist solo de productos de esa zona. ~90 productos
+    totales distribuidos en 3 zonas.
+17. **Bistrosoft Transacciones tab rota (17 abril 2026).** Martin noto que
+    la tab solo tiene datos de Marzo. Deberia tener rolling 15 dias siempre
+    (para Stock Minimo). Fix pendiente en repo Api-bistrosoft DESPUES del bot.
 
 ---
 
