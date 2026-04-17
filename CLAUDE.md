@@ -511,6 +511,39 @@ ZONAS = ["Cocina", "Mostrador", "Barra"]
     siempre, y crear nuevas SIN acento. Si la vieja con acento persiste,
     hay que borrarla explicitamente. Aplicar este patron a CUALQUIER
     pestana cuyo nombre pueda tener caracteres especiales.
+28. **Visor Sheet + Google Forms = fuentes de productos (17 abril 2026).**
+    Martin compartio el Sheet "Logistica visor de stock por local"
+    (`1-M8WkjTjfVIpRI1ZFHgpMx7xsFLkwhvLM7-O0xfYSek`) diciendo "En este
+    sheet deberian estar todos los articulos que usamos." Ese visor usa
+    IMPORTRANGE de otra Sheet fuente (`1EYfqYmqheaXNzoTuuOOLYPb5d4YiUMtq1yzGsCUrrFY`).
+    Para extraer la lista autoritativa se usaron los 3 Google Forms (leccion 23):
+    - COCINA: `1FAIpQLSfBvLTAuHOBB5ErPVWzk4INeXCjW_pdeBs7TybUvBoo6cQDgg` (54 productos)
+    - MOSTRADOR: `1FAIpQLSdd3jWPsStsixsDO22-BLEyn1P4XSguxKE2H6Ty_mfDSeFn6g` (15 productos)
+    - BARRA: `1FAIpQLSertVa57F1w_89N73wmUCbAkUUZZFMZ322voaVaxIfpujYkCg` (16 productos)
+    Total: 85 productos. Metodo de extraccion: `get_page_text` del Chrome MCP
+    en la URL `/viewform` de cada form → parsear `FB_PUBLIC_LOAD_DATA_` (JSON
+    embebido en el JS de la pagina). El visor Sheet NO se pudo leer via
+    gviz/tq CSV export (redireccion por permisos). Los forms son la fuente
+    autoritativa. `_HARDCODED_PRODUCTS` fue actualizado con estos 85 productos.
+29. **Para actualizar productos en el futuro.** Flujo correcto:
+    (1) Verificar los 3 Google Forms para nombres/unidades autoritativas.
+    (2) Actualizar `_HARDCODED_PRODUCTS` en `bot_envios.py`.
+    (3) Bumpar `CATALOG_VERSION`.
+    (4) Push → Railway auto-deploy → bot re-sincroniza Sheet al arrancar.
+    NO editar solo el Sheet — el pipeline lo pisa al siguiente restart.
+
+---
+
+## Google Forms (fuente de productos)
+
+| Form | ID | Zona | Productos |
+|------|----|------|-----------|
+| Stock Cocina | `1FAIpQLSfBvLTAuHOBB5ErPVWzk4INeXCjW_pdeBs7TybUvBoo6cQDgg` | Cocina | 54 |
+| Stock Mostrador | `1FAIpQLSdd3jWPsStsixsDO22-BLEyn1P4XSguxKE2H6Ty_mfDSeFn6g` | Mostrador | 15 |
+| Café y Barra | `1FAIpQLSertVa57F1w_89N73wmUCbAkUUZZFMZ322voaVaxIfpujYkCg` | Barra | 16 |
+
+Visor Sheet: `1-M8WkjTjfVIpRI1ZFHgpMx7xsFLkwhvLM7-O0xfYSek`
+(Logistica visor de stock por local — tabs STOCK LIBERTADOR/ZABALA/MAURE)
 
 ---
 
