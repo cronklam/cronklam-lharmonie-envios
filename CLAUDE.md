@@ -56,11 +56,15 @@ cronklam/cronklam-lharmonie-envios/
 
 ## SISTEMA DE STOCK (nuevo abril 2026)
 
-### Modelo de 2 estados (NO 4)
+### Modelo de estados
 
+**Productos terminados (locales retail + CDP):** 2 estados:
+CONGELADO (en freezer) y HORNEADO (ya horneado/listo).
 Martin rechazo explicitamente el modelo de 4 estados.
-**Solo 2 estados: CONGELADO (en freezer) y HORNEADO (ya horneado/listo).**
-Quote: "No serian 4 estados, son 2. Freezado o ya horneado."
+
+**Materia prima (solo CDP):** 1 estado: STOCK.
+La materia prima no tiene congelado/horneado — es "hay o no hay".
+Se trackea en zona Depósito, exclusiva del CDP (19 abril 2026).
 
 ### Movimientos que se trackean
 
@@ -72,13 +76,17 @@ Aunque solo hay 2 estados, se registran TODOS los movimientos:
 - **TRANSFER** — entre locales
 - **MERMA** — descarte
 
-### Zonas de carga por local (3 zonas)
+### Zonas de carga por local (4 zonas, filtradas por local)
 
 - **Cocina**: los chicos de cocina cargan stock de cocina (freezer/congelados)
 - **Mostrador**: encargado de mostrador carga lo de mostrador (horneado exhibido)
 - **Barra**: deberia cargar el de barra
+- **Depósito**: materia prima del CDP (harina, manteca, huevos, etc.)
 
 Hoy solo cargan cocina y mostrador via Google Forms. Barra es nuevo.
+**Depósito es visible SOLO para CDP** — `_zones_for_local()` filtra las
+zonas disponibles según el local seleccionado. Locales retail (LH2-LH5)
+ven Cocina/Mostrador/Barra. CDP ve las 4 zonas.
 
 ### Auditoria AUTOMATICA (no manual)
 
@@ -304,8 +312,15 @@ LOCALES_STOCK = [
     "LH5 - Libertador 3118",
 ]
 LOCALES_RETAIL = [loc for loc in LOCALES_STOCK if "CDP" not in loc]
-LOCAL_KEYS = ["LH2", "LH3", "LH4", "LH5"]
-ZONAS = ["Cocina", "Mostrador", "Barra"]
+LOCAL_KEYS = ["CDP", "LH2", "LH3", "LH4", "LH5"]
+ZONAS = ["Cocina", "Mostrador", "Barra", "Depósito"]
+ZONAS_DISPLAY = ["🍳 Cocina", "🧁 Mostrador", "☕ Barra", "📦 Depósito"]
+ZONA_DEFAULT_STATE = {
+    "Cocina": "congelado",
+    "Mostrador": "horneado",
+    "Barra": "horneado",
+    "Depósito": "stock",  # Materia prima CDP
+}
 ```
 
 ---
@@ -320,7 +335,8 @@ ZONAS = ["Cocina", "Mostrador", "Barra"]
    un producto que no esta en el catalogo, el bot busca el mas parecido
    con SequenceMatcher. Umbral configurable.
 4. **Timezone Argentina.** Todas las fechas/horas usan UTC-3.
-5. **Solo 2 estados de stock.** CONGELADO y HORNEADO. NUNCA agregar mas.
+5. **Productos terminados: CONGELADO y HORNEADO.** Materia prima (CDP): STOCK.
+   NUNCA agregar mas estados a productos terminados. Materia prima es aparte.
 6. **Auditoria automatica, no manual.** Martin lo pidio explicitamente.
 7. **Mismo Sheet para todo.** Envios, stock, movimientos — todo en el
    mismo Google Sheet. NO crear sheets separados.
@@ -531,6 +547,28 @@ ZONAS = ["Cocina", "Mostrador", "Barra"]
     (3) Bumpar `CATALOG_VERSION`.
     (4) Push → Railway auto-deploy → bot re-sincroniza Sheet al arrancar.
     NO editar solo el Sheet — el pipeline lo pisa al siguiente restart.
+30. **Materia prima para CDP — zona Depósito (19 abril 2026).** Martin pidio:
+    "HAY QUE SUMAR EL STOCK DE MATERIA PRIMA PARA EL CDP". Se agrego la zona
+    "Depósito" visible SOLO para CDP. ~63 productos de materia prima en 12
+    categorías (Harinas, Lácteos, Grasas, Huevos, Azúcares, Chocolates,
+    Frutas Secas, Cafetería MP, Condimentos, Verdulería, Carnes, Packaging).
+    Estado: "stock" (no congelado/horneado — materia prima es "hay o no hay").
+    Cambios clave:
+    - `_zones_for_local()` filtra Depósito para locales que no son CDP
+    - `LOCAL_KEYS` incluye "CDP" para que stock_update_product cree col
+      "CDP Stock" en Stock Actual
+    - `STOCK_ACTUAL_HEADERS` expandido con columna "CDP Stock"
+    - `CATALOG_VERSION` bumpeado a v4
+    - Productos con sufijo "MP" donde hay colision de nombres con
+      productos terminados (ej: "Queso crema MP" vs "Queso crema")
+    - La lista de materia prima viene del Recetario (Sheet Foodcost GRAL)
+    **Sincronizar con:** `products.ts` en lharmonie-staff tiene los mismos
+    productos. Si se agrega/quita materia prima, actualizar en AMBOS lugares.
+31. **Cargar stock ahora muestra TODOS los locales (19 abril 2026).** Antes
+    el boton "Cargar stock" solo mostraba LOCALES_RETAIL (LH2-LH5). Ahora
+    muestra LOCALES_STOCK (incluye CDP). Esto permite cargar materia prima
+    del CDP desde el bot. 3 lugares cambiados: cmd_cargar, menu_cargar
+    callback, y cargar_local_ callback.
 
 ---
 

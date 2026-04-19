@@ -55,17 +55,26 @@ LOCALES_RETAIL = [
 ]
 
 # Short keys for stock columns
-LOCAL_KEYS = ["LH2", "LH3", "LH4", "LH5"]
+LOCAL_KEYS = ["CDP", "LH2", "LH3", "LH4", "LH5"]
 
-ZONAS = ["Cocina", "Mostrador", "Barra"]
-ZONAS_DISPLAY = ["🍳 Cocina", "🧁 Mostrador", "☕ Barra"]
+ZONAS = ["Cocina", "Mostrador", "Barra", "Depósito"]
+ZONAS_DISPLAY = ["🍳 Cocina", "🧁 Mostrador", "☕ Barra", "📦 Depósito"]
 
 # Default stock state per zone
 ZONA_DEFAULT_STATE = {
     "Cocina": "congelado",
     "Mostrador": "horneado",
     "Barra": "horneado",
+    "Depósito": "stock",  # Materia prima CDP — no tiene congelado/horneado
 }
+
+def _zones_for_local(local_key: str) -> list[tuple[str, str]]:
+    """Return (zone_name, zone_display) pairs available for a local.
+    Depósito only shows for CDP."""
+    pairs = list(zip(ZONAS, ZONAS_DISPLAY))
+    if local_key != "CDP":
+        pairs = [(z, d) for z, d in pairs if z != "Depósito"]
+    return pairs
 
 TRANSPORTES = ["🚗 Ezequiel (Mister)", "🚕 Uber"]
 
@@ -116,7 +125,7 @@ def get_stock_sheet():
 
 
 # ── PRODUCTOS ─────────────────────────────────────────────────────────────────
-CATALOG_VERSION = "2026-04-17-v3"  # Bump this to force re-sync of product catalog
+CATALOG_VERSION = "2026-04-19-v4"  # Bump this to force re-sync of product catalog
 
 # In-memory product cache to avoid hitting Sheets API every interaction
 _product_cache = {"productos": {}, "unidades": {}, "zonas": {}, "ts": 0}
@@ -213,6 +222,71 @@ _HARDCODED_PRODUCTS = [
     ("Barra", "Té Royal frut", "u", "Barra"),
     ("Barra", "Té breakfast", "u", "Barra"),
     ("Barra", "Té Berrys", "u", "Barra"),
+    # ── DEPÓSITO — MATERIA PRIMA CDP (del Recetario / Foodcost) ──
+    ("Harinas", "Harina 000", "kg", "Depósito"),
+    ("Harinas", "Harina 0000", "kg", "Depósito"),
+    ("Harinas", "Harina integral", "kg", "Depósito"),
+    ("Harinas", "Premezcla medialuna", "kg", "Depósito"),
+    ("Harinas", "Premezcla budín", "kg", "Depósito"),
+    ("Harinas", "Almidón de maíz", "kg", "Depósito"),
+    ("Harinas", "Avena", "kg", "Depósito"),
+    ("Harinas", "Polvo de hornear", "kg", "Depósito"),
+    ("Lácteos", "Leche entera", "lt", "Depósito"),
+    ("Lácteos", "Crema de leche", "lt", "Depósito"),
+    ("Lácteos", "Queso crema MP", "kg", "Depósito"),
+    ("Lácteos", "Manteca", "kg", "Depósito"),
+    ("Lácteos", "Dulce de leche", "kg", "Depósito"),
+    ("Lácteos", "Yogur natural", "lt", "Depósito"),
+    ("Grasas", "Aceite girasol", "lt", "Depósito"),
+    ("Grasas", "Aceite oliva", "lt", "Depósito"),
+    ("Grasas", "Margarina hojaldre", "kg", "Depósito"),
+    ("Grasas", "Rocío vegetal", "u", "Depósito"),
+    ("Huevos", "Huevos", "u", "Depósito"),
+    ("Azúcares", "Azúcar común MP", "kg", "Depósito"),
+    ("Azúcares", "Azúcar impalpable", "kg", "Depósito"),
+    ("Azúcares", "Miel", "kg", "Depósito"),
+    ("Azúcares", "Glucosa", "kg", "Depósito"),
+    ("Azúcares", "Stevia/edulcorante", "kg", "Depósito"),
+    ("Chocolates", "Chocolate cobertura negro", "kg", "Depósito"),
+    ("Chocolates", "Chocolate cobertura blanco", "kg", "Depósito"),
+    ("Chocolates", "Cacao amargo", "kg", "Depósito"),
+    ("Frutas Secas", "Nuez", "kg", "Depósito"),
+    ("Frutas Secas", "Almendra", "kg", "Depósito"),
+    ("Frutas Secas", "Pasta de pistacho", "kg", "Depósito"),
+    ("Frutas Secas", "Coco rallado", "kg", "Depósito"),
+    ("Frutas Secas", "Pasas de uva", "kg", "Depósito"),
+    ("Frutas Secas", "Arándanos secos", "kg", "Depósito"),
+    ("Frutas Secas", "Semillas de sésamo", "kg", "Depósito"),
+    ("Cafetería MP", "Café en grano MP", "kg", "Depósito"),
+    ("Cafetería MP", "Leche descremada MP", "lt", "Depósito"),
+    ("Cafetería MP", "Leche de almendras MP", "lt", "Depósito"),
+    ("Cafetería MP", "Bebida de avena MP", "lt", "Depósito"),
+    ("Cafetería MP", "Chocolate en polvo MP", "kg", "Depósito"),
+    ("Condimentos", "Sal fina MP", "kg", "Depósito"),
+    ("Condimentos", "Esencia de vainilla", "lt", "Depósito"),
+    ("Condimentos", "Ralladura de limón", "kg", "Depósito"),
+    ("Condimentos", "Canela", "kg", "Depósito"),
+    ("Condimentos", "Levadura fresca", "kg", "Depósito"),
+    ("Condimentos", "Levadura seca", "kg", "Depósito"),
+    ("Verdulería", "Banana", "kg", "Depósito"),
+    ("Verdulería", "Limón", "kg", "Depósito"),
+    ("Verdulería", "Naranja", "kg", "Depósito"),
+    ("Verdulería", "Manzana verde", "kg", "Depósito"),
+    ("Verdulería", "Frutilla fresca", "kg", "Depósito"),
+    ("Verdulería", "Tomate", "kg", "Depósito"),
+    ("Verdulería", "Palta", "u", "Depósito"),
+    ("Verdulería", "Cebolla", "kg", "Depósito"),
+    ("Verdulería", "Lechuga", "u", "Depósito"),
+    ("Verdulería", "Espinaca", "kg", "Depósito"),
+    ("Carnes", "Jamón cocido", "kg", "Depósito"),
+    ("Carnes", "Lomito ahumado", "kg", "Depósito"),
+    ("Carnes", "Salmón ahumado", "kg", "Depósito"),
+    ("Packaging", "Bolsa kraft chica", "u", "Depósito"),
+    ("Packaging", "Bolsa kraft grande", "u", "Depósito"),
+    ("Packaging", "Caja individual", "u", "Depósito"),
+    ("Packaging", "Vaso descartable 8oz", "u", "Depósito"),
+    ("Packaging", "Tapa vaso", "u", "Depósito"),
+    ("Packaging", "Servilletas", "u", "Depósito"),
 ]
 
 
@@ -625,6 +699,7 @@ STOCK_ACTUAL_HEADERS = [
     "LH3 Congelado", "LH3 Horneado",
     "LH4 Congelado", "LH4 Horneado",
     "LH5 Congelado", "LH5 Horneado",
+    "CDP Stock",  # Materia prima (Depósito zone, CDP only)
     "Ultima Actualizacion"
 ]
 
@@ -842,12 +917,14 @@ def stock_log_movement(sh, local: str, zona: str, producto: str, tipo: str,
 
 
 def _local_key_from_name(local_name: str) -> str:
-    """Extract LH2/LH3/LH4/LH5 from a local name string."""
+    """Extract CDP/LH2/LH3/LH4/LH5 from a local name string."""
     local_upper = local_name.upper()
+    if "CDP" in local_upper:
+        return "CDP"
     for lk in LOCAL_KEYS:
         if lk in local_upper:
             return lk
-    if "NICARAGUA" in local_upper and "CDP" not in local_upper:
+    if "NICARAGUA" in local_upper:
         return "LH2"
     if "MAURE" in local_upper:
         return "LH3"
@@ -1271,7 +1348,7 @@ async def cmd_start(update: Update, context: ContextTypes.DEFAULT_TYPE):
 async def cmd_cargar(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Shortcut command /cargar"""
     estado_usuario[update.effective_chat.id] = {"paso": "cargar_eligiendo_local"}
-    keyboard = [[InlineKeyboardButton(local_corto(l), callback_data=f"cargar_local_{i}")] for i, l in enumerate(LOCALES_RETAIL)]
+    keyboard = [[InlineKeyboardButton(local_corto(l), callback_data=f"cargar_local_{i}")] for i, l in enumerate(LOCALES_STOCK)]
     keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
     await update.message.reply_text(
         "📝 *Cargar stock*\n\nEn que local?",
@@ -1337,7 +1414,7 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     if data == "menu_cargar":
         estado_usuario[chat_id] = {"paso": "cargar_eligiendo_local"}
-        keyboard = [[InlineKeyboardButton(local_corto(l), callback_data=f"cargar_local_{i}")] for i, l in enumerate(LOCALES_RETAIL)]
+        keyboard = [[InlineKeyboardButton(local_corto(l), callback_data=f"cargar_local_{i}")] for i, l in enumerate(LOCALES_STOCK)]
         keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
         await query.edit_message_text(
             "📝 *Cargar stock*\n\nEn que local?",
@@ -1385,13 +1462,16 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ── FLUJO CARGAR STOCK (TEMPLATE) ────────────────────────────────
     if data.startswith("cargar_local_"):
         idx = int(data.split("_")[2])
-        local = LOCALES_RETAIL[idx]
+        local = LOCALES_STOCK[idx]
+        lk = _local_key_from_name(local)
         info = estado_usuario.get(chat_id, {})
         info["paso"] = "cargar_eligiendo_zona"
         info["cargar_local"] = local
-        info["cargar_lk"] = _local_key_from_name(local)
+        info["cargar_lk"] = lk
+        available_zones = _zones_for_local(lk)
+        info["cargar_available_zones"] = available_zones
         estado_usuario[chat_id] = info
-        keyboard = [[InlineKeyboardButton(z, callback_data=f"cargar_zona_{i}")] for i, z in enumerate(ZONAS_DISPLAY)]
+        keyboard = [[InlineKeyboardButton(d, callback_data=f"cargar_zona_{i}")] for i, (z, d) in enumerate(available_zones)]
         keyboard.append([InlineKeyboardButton("❌ Cancelar", callback_data="cancelar")])
         await query.edit_message_text(
             f"📍 *{local_corto(local)}*\n\nQue zona?",
@@ -1402,7 +1482,8 @@ async def callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data.startswith("cargar_zona_"):
         idx = int(data.split("_")[2])
         info = estado_usuario.get(chat_id, {})
-        zona = ZONAS[idx]
+        available_zones = info.get("cargar_available_zones", list(zip(ZONAS, ZONAS_DISPLAY)))
+        zona = available_zones[idx][0] if idx < len(available_zones) else ZONAS[idx]
         info["cargar_zona"] = zona
         info["paso"] = "cargar_esperando_template"
         estado_usuario[chat_id] = info
