@@ -38,6 +38,7 @@ GOOGLE_CREDS   = os.environ.get("GOOGLE_CREDENTIALS", "")
 # ── LOCALES ──────────────────────────────────────────────────────────────────
 LOCALES_STOCK = [
     "CDP - Nicaragua (Produccion)",
+    "LH1 - Seguí",
     "LH2 - Nicaragua 6068",
     "LH3 - Maure 1516",
     "LH4 - Zabala 1925",
@@ -47,7 +48,10 @@ LOCALES_ENVIO = LOCALES_STOCK
 LOCALES = LOCALES_ENVIO
 
 # Retail locals only (no CDP) — used for stock tracking
+# LH1 (Seguí) está cerrado al público pero funciona como depósito,
+# se trackea como local regular.
 LOCALES_RETAIL = [
+    "LH1 - Seguí",
     "LH2 - Nicaragua 6068",
     "LH3 - Maure 1516",
     "LH4 - Zabala 1925",
@@ -55,7 +59,7 @@ LOCALES_RETAIL = [
 ]
 
 # Short keys for stock columns
-LOCAL_KEYS = ["CDP", "LH2", "LH3", "LH4", "LH5"]
+LOCAL_KEYS = ["CDP", "LH1", "LH2", "LH3", "LH4", "LH5"]
 
 ZONAS = ["Cocina", "Mostrador", "Barra", "Depósito"]
 ZONAS_DISPLAY = ["🍳 Cocina", "🧁 Mostrador", "☕ Barra", "📦 Depósito"]
@@ -125,7 +129,7 @@ def get_stock_sheet():
 
 
 # ── PRODUCTOS ─────────────────────────────────────────────────────────────────
-CATALOG_VERSION = "2026-04-19-v4"  # Bump this to force re-sync of product catalog
+CATALOG_VERSION = "2026-04-23-v5"  # Bump this to force re-sync of product catalog
 
 # In-memory product cache to avoid hitting Sheets API every interaction
 _product_cache = {"productos": {}, "unidades": {}, "zonas": {}, "ts": 0}
@@ -179,7 +183,7 @@ _HARDCODED_PRODUCTS = [
     ("Varios", "Queso crema", "kg", "Cocina"),
     ("Varios", "Azucar", "kg", "Cocina"),
     ("Varios", "Azucar impalpable", "kg", "Cocina"),
-    ("Varios", "Granola", "kg", "Cocina, Barra"),
+    ("Varios", "Granola", "kg", "Cocina"),
     ("Varios", "Pasta de atún", "kg", "Cocina"),
     ("Varios", "Pesto", "kg", "Cocina"),
     ("Varios", "Salsa holandesa", "kg", "Cocina"),
@@ -215,7 +219,9 @@ _HARDCODED_PRODUCTS = [
     ("Barra", "Receta leche casera", "u", "Barra"),
     ("Barra", "Matcha", "u", "Barra"),
     ("Barra", "Hibiscus", "u", "Barra"),
-    ("Barra", "Curcuma", "u", "Barra"),
+    ("Barra", "Vainilla", "u", "Barra"),
+    ("Barra", "Caramelo", "u", "Barra"),
+    ("Barra", "Chocolate", "u", "Barra"),
     ("Barra", "Frutilla congelada", "u", "Barra"),
     ("Barra", "Arandanos congelados", "u", "Barra"),
     ("Barra", "Té Grey", "u", "Barra"),
@@ -277,6 +283,7 @@ _HARDCODED_PRODUCTS = [
     ("Verdulería", "Palta", "u", "Depósito"),
     ("Verdulería", "Cebolla", "kg", "Depósito"),
     ("Verdulería", "Lechuga", "u", "Depósito"),
+    ("Verdulería", "Rúcula", "kg", "Cocina, Depósito"),
     ("Verdulería", "Espinaca", "kg", "Depósito"),
     ("Carnes", "Jamón cocido", "kg", "Depósito"),
     ("Carnes", "Lomito ahumado", "kg", "Depósito"),
@@ -695,6 +702,7 @@ def marcar_recibido(fila: int, responsable: str, recibido_ok: bool, diferencias:
 
 STOCK_ACTUAL_HEADERS = [
     "Producto", "Categoria",
+    "LH1 Congelado", "LH1 Horneado",
     "LH2 Congelado", "LH2 Horneado",
     "LH3 Congelado", "LH3 Horneado",
     "LH4 Congelado", "LH4 Horneado",
@@ -917,13 +925,15 @@ def stock_log_movement(sh, local: str, zona: str, producto: str, tipo: str,
 
 
 def _local_key_from_name(local_name: str) -> str:
-    """Extract CDP/LH2/LH3/LH4/LH5 from a local name string."""
+    """Extract CDP/LH1/LH2/LH3/LH4/LH5 from a local name string."""
     local_upper = local_name.upper()
     if "CDP" in local_upper:
         return "CDP"
     for lk in LOCAL_KEYS:
         if lk in local_upper:
             return lk
+    if "SEGUI" in local_upper or "SEGUÍ" in local_upper:
+        return "LH1"
     if "NICARAGUA" in local_upper:
         return "LH2"
     if "MAURE" in local_upper:
