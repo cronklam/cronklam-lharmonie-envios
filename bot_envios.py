@@ -138,18 +138,11 @@ _PRODUCT_CACHE_TTL = 600  # 10 minutes
 # Hardcoded product list — FALLBACK when Sheets is unreachable.
 # Source: Google Forms (Cocina + Mostrador + Barra). 17 abril 2026.
 _HARDCODED_PRODUCTS = [
-    # ══════ MOSTRADOR ══════
-    # ── Café listo ──
-    ("Café listo", "cortado", "u", "Mostrador"),
-    # ── Panadería ──
-    ("Panadería", "brioche roll de canela", "u", "Mostrador"),
-    ("Panadería", "Pan de nuez", "u", "Mostrador"),
-    ("Panadería", "Pan de semillas", "u", "Mostrador"),
-    ("Panadería", "Pan sando molde", "u", "Mostrador"),
-    ("Panadería", "Rodaja de pan de semillas", "u", "Mostrador"),
-    ("Panadería", "Rodaja pan brioche", "u", "Mostrador"),
-    ("Panadería", "Rodaja pan sando", "u", "Mostrador"),
-    ("Panadería", "Roll de canela", "u", "Mostrador"),
+    # ══════ MOSTRADOR (productos terminados / horneados / listos para vender) ══════
+    # NOTA: cortado, tiramisu latte, tiramisu bebida cereal matcha SON BEBIDAS
+    # TERMINADAS, no van en stock (Martin abr-2026).
+    # Las "Rodajas" tampoco — los panes van en Cocina como pieza entera.
+    #
     # ── Pastelería ──
     ("Pastelería", "Alfajor de chocolate", "u", "Mostrador"),
     ("Pastelería", "Alfajor de nuez", "u", "Mostrador"),
@@ -163,12 +156,24 @@ _HARDCODED_PRODUCTS = [
     ("Pastelería", "muffins de chocolate", "u", "Mostrador"),
     ("Pastelería", "muffins de zanahoria", "u", "Mostrador"),
     ("Pastelería", "Palmerita elaboracion", "u", "Mostrador"),
-    ("Pastelería", "tiramisu bebida Cereal matcha", "u", "Mostrador"),
-    ("Pastelería", "Tiramisu latte", "u", "Mostrador"),
     ("Pastelería", "Torta banofee", "u", "Mostrador"),
     ("Pastelería", "Torta matilda", "u", "Mostrador"),
     ("Pastelería", "Torta rogel", "u", "Mostrador"),
     ("Pastelería", "Torta vasca", "u", "Mostrador"),
+    # ── Freezados horneados (vista mostrador del mismo producto que cocina) ──
+    ("Freezados ❄️", "Tarta del día", "u", "Mostrador"),
+    ("Freezados ❄️", "Pain au choco", "u", "Mostrador"),
+    ("Freezados ❄️", "Bavka pistacho", "u", "Mostrador"),
+    ("Freezados ❄️", "Bavka de chocolate", "u", "Mostrador"),
+    ("Freezados ❄️", "Pan suisse", "u", "Mostrador"),
+    ("Freezados ❄️", "Roll de maní", "u", "Mostrador"),
+    ("Freezados ❄️", "Roll canela", "u", "Mostrador"),
+    ("Freezados ❄️", "Medialunas", "u", "Mostrador"),
+    ("Freezados ❄️", "Croissant", "u", "Mostrador"),
+    ("Freezados ❄️", "Chipa", "u", "Mostrador"),
+    ("Freezados ❄️", "Chipa prensado", "u", "Mostrador"),
+    ("Freezados ❄️", "Palmeras", "u", "Mostrador"),
+    ("Freezados ❄️", "Palitos de queso", "u", "Mostrador"),
     # ══════ COCINA ══════
     # ── Aceites ──
     ("Aceites", "Aceite de coco", "kg", "Cocina"),
@@ -544,7 +549,16 @@ _HARDCODED_PRODUCTS = [
     ("Bebidas", "coca cola zero lata", "u", "Barra"),
     ("Bebidas", "coca original", "u", "Barra"),
     ("Bebidas", "espumante", "lt", "Barra"),
-    ("Bebidas", "gin tonic", "lt", "Barra"),
+    ("Bebidas", "Gin", "lt", "Barra"),
+    # Lácteos para café/matcha/bebidas
+    ("Lácteos barra", "Leche entera", "lt", "Barra"),
+    ("Lácteos barra", "Leche descremada", "lt", "Barra"),
+    ("Lácteos barra", "Leche de almendras", "lt", "Barra"),
+    ("Lácteos barra", "Leche de avena", "lt", "Barra"),
+    # Salsas / siropes para bebidas
+    ("Salsas barra", "Salsa de caramelo", "kg", "Barra"),
+    ("Salsas barra", "Salsa de chocolate", "kg", "Barra"),
+    ("Salsas barra", "Salsa de vainilla", "kg", "Barra"),
     ("Bebidas", "sprite zero lata", "u", "Barra"),
     ("Bebidas", "whiskey", "lt", "Barra"),
     # ── Café ──
